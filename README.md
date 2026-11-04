@@ -114,6 +114,7 @@ random sample, storage, receipts and parallel processing. The settings live in `
 | `mask_method` | saturation_multiotsu | Tissue is colored and background is white or gray, so the mask thresholds the HSV saturation channel (median-blurred, `mask_median_px`), using the lower cut of a three-class Otsu so pale tissue counts as tissue, then closes small gaps (`mask_close_px`). `otsu_gray` uses TIAToolbox's grayscale `OtsuTissueMasker` instead. |
 | `min_tissue_fraction` | 0.5 | A grid tile is kept if more than half of it is tissue. |
 | `max_tiles_per_slide`, `seed` | 2000, 0 | Above the cap, tiles are sampled at random with a per-slide seed, so reruns pick the same tiles. |
+| `max_glass_fraction`, `min_blur` | 0.9, 20 | Quality filter: a sampled tile is dropped if more than 90% of it is uncolored glass (saturation < 8, brightness > 200) or its blur score (variance of the Laplacian) is below 20, i.e. empty or featureless. Dropped tiles are replaced by the next tissue tile in the random order, so the cap is still reached. |
 | `jpeg_quality` | 90 | Tiles are stored as JPEG. |
 
 Tiles are resampled with TIAToolbox's default interpolation: area averaging when shrinking (the 40×
@@ -154,6 +155,7 @@ Each `.h5` file holds:
 - `coords_level0`: top-left of the full-resolution region TIAToolbox read for each tile (for
   heatmaps and overlays)
 - `tissue_coords`: `coords` for every tissue tile, including those not sampled
+- `dropped_coords`: `coords` of tiles removed by the quality filter
 
 Its attributes record the slide's own µm/px, the tile geometry, tile counts, the full config
 and the library versions. To read a tile:

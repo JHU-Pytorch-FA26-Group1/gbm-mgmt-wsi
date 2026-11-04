@@ -49,7 +49,8 @@ from download import (DEFAULT_LOG_DIR, DEFAULT_MANIFEST, REPO_ROOT, SOURCES, loa
 
 DEFAULT_CONFIG = REPO_ROOT / "configs" / "tiling.yaml"
 CONFIG_KEYS = {"version", "tile_px", "target_mpp", "mask_mpp", "mask_method", "mask_median_px",
-               "mask_close_px", "min_tissue_fraction", "max_tiles_per_slide", "seed", "jpeg_quality"}
+               "mask_close_px", "min_tissue_fraction", "max_tiles_per_slide", "max_glass_fraction",
+               "min_blur", "seed", "jpeg_quality"}
 MASK_METHODS = ("saturation_multiotsu", "otsu_gray")
 
 log = logging.getLogger("tile")
@@ -96,6 +97,9 @@ def load_config(path):
         raise RuntimeError(f"mask_median_px must be odd and >= 3: {cfg['mask_median_px']}")
     if cfg["mask_close_px"] < 1:
         raise RuntimeError(f"mask_close_px must be >= 1: {cfg['mask_close_px']}")
+    if not 0 <= cfg["max_glass_fraction"] <= 1 or cfg["min_blur"] < 0:
+        raise RuntimeError(f"bad tile filter: max_glass_fraction {cfg['max_glass_fraction']}, "
+                           f"min_blur {cfg['min_blur']}")
     return cfg, hashlib.sha256(text.encode()).hexdigest(), text
 
 
@@ -114,6 +118,19 @@ def tiled(root, row, config_sha):
     except (OSError, ValueError):
         return False
     return record.get("config_sha256") == config_sha and h5_path.exists()
+
+
+def tile_quality(img):
+    """Return (glass fraction, blur score) for an RGB tile.
+
+    glass: fraction of near-white pixels with almost no color (HSV saturation < 8, value > 200);
+    background sits at saturation 0-3, while even very pale tissue is around 13 or more.
+    blur: variance of the Laplacian of the grayscale tile; near 0 for empty or featureless tiles.
+    """
+    hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
+    glass = float(((hsv[..., 1] < 8) & (hsv[..., 2] > 200)).mean())
+    blur = float(cv2.Laplacian(cv2.cvtColor(img, cv2.COLOR_RGB2GRAY), cv2.CV_64F).var())
+    return glass, blur
 
 
 def tissue_mask(thumb, cfg):
@@ -185,11 +202,27 @@ def tile_slide(root, row, cfg, config_sha, config_text):
     if not len(tissue):
         raise ValueError("no tissue tiles")
 
+    # Visit tissue tiles in a seeded random order and keep those that pass the quality filter,
+    # until max_tiles_per_slide are kept. Dropped tiles are replaced, so the cap is still reached.
     seed = int.from_bytes(hashlib.sha256(f"{cfg['seed']}|{row['slide_id']}".encode()).digest()[:8], "big")
-    rng = np.random.default_rng(seed)
-    count = min(len(tissue), cfg["max_tiles_per_slide"])
-    chosen = np.sort(rng.choice(len(tissue), size=count, replace=False))
+    encoded, dropped = {}, []
+    for index in np.random.default_rng(seed).permutation(len(tissue)):
+        if len(encoded) == cfg["max_tiles_per_slide"]:
+            break
+        img = np.ascontiguousarray(extractor[int(index)][..., :3])
+        glass, blur = tile_quality(img)
+        if glass > cfg["max_glass_fraction"] or blur < cfg["min_blur"]:
+            dropped.append(int(index))
+            continue
+        buffer = io.BytesIO()
+        Image.fromarray(img).save(buffer, format="JPEG", quality=cfg["jpeg_quality"])
+        encoded[int(index)] = np.frombuffer(buffer.getvalue(), dtype=np.uint8)
+    if not encoded:
+        raise ValueError(f"no tiles left after the quality filter ({len(dropped)} dropped)")
+    chosen = np.sort(list(encoded))       # grid order, so neighbouring tiles stay together
+    count = len(chosen)
     coords = tissue[chosen]
+    dropped_coords = tissue[np.sort(dropped)] if dropped else np.zeros((0, 2), dtype=np.int64)
     tile_px = cfg["tile_px"]
     # The level-0 region TIAToolbox reads for each tile (its own conversion, which rounds up).
     coords_level0 = np.array([wsi.bounds_at_resolution_to_baseline(
@@ -200,13 +233,11 @@ def tile_slide(root, row, cfg, config_sha, config_text):
     with h5py.File(temporary, "w") as h5:
         tiles = h5.create_dataset("tiles", shape=(count,), dtype=h5py.vlen_dtype(np.uint8))
         for i, index in enumerate(chosen):
-            tile = extractor[int(index)]
-            buffer = io.BytesIO()
-            Image.fromarray(tile[..., :3]).save(buffer, format="JPEG", quality=cfg["jpeg_quality"])
-            tiles[i] = np.frombuffer(buffer.getvalue(), dtype=np.uint8)
+            tiles[i] = encoded[int(index)]
         h5.create_dataset("coords", data=coords)
         h5.create_dataset("coords_level0", data=coords_level0)
         h5.create_dataset("tissue_coords", data=tissue)
+        h5.create_dataset("dropped_coords", data=dropped_coords)
         attrs = {"slide_id": row["slide_id"], "patient_id": row["patient_id"],
                  "source": row["source"], "file_name": row["file_name"],
                  "source_mpp_x": float(info.mpp[0]), "source_mpp_y": float(info.mpp[1]),
@@ -221,7 +252,8 @@ def tile_slide(root, row, cfg, config_sha, config_text):
                  "mask_fraction": float(mask.mean()),
                  "level_dimensions": json.dumps([list(map(int, d)) for d in info.level_dimensions]),
                  "level_downsamples": json.dumps([float(d) for d in info.level_downsamples]),
-                 "n_tissue_tiles": len(tissue), "n_sampled": count,
+                 "n_tissue_tiles": len(tissue), "n_sampled": count, "n_dropped": len(dropped),
+                 "quality_filter": f"drop if glass > {cfg['max_glass_fraction']} or blur < {cfg['min_blur']}",
                  "tiling_version": cfg["version"], "config_sha256": config_sha,
                  "config_yaml": config_text, "tiatoolbox": tiatoolbox.__version__,
                  "openslide_python": openslide.__version__,
@@ -235,8 +267,8 @@ def tile_slide(root, row, cfg, config_sha, config_text):
     return {"slide_id": row["slide_id"], "source": row["source"], "patient_id": row["patient_id"],
             "file_name": row["file_name"], "h5": str(h5_path.relative_to(root)),
             "h5_sha256": digest, "h5_bytes": h5_path.stat().st_size,
-            "n_tissue_tiles": len(tissue), "n_sampled": count, "source_mpp": float(info.mpp[0]),
-            "mask_threshold": threshold,
+            "n_tissue_tiles": len(tissue), "n_sampled": count, "n_dropped": len(dropped),
+            "source_mpp": float(info.mpp[0]), "mask_threshold": threshold,
             "config_sha256": config_sha, "tiling_version": cfg["version"],
             "seconds": round(time.monotonic() - started, 1),
             "tiled_at_utc": datetime.now(timezone.utc).isoformat()}
@@ -323,8 +355,9 @@ def main(argv=None):
                     log.error("%s %s failed: %s", row["patient_id"], row["file_name"], error)
                 else:
                     write_json(output_paths(args.root, row)[2], stats)
-                    log.info("%s %s: %d of %d tissue tiles, %.0f MB, %.0f s", row["patient_id"],
-                             row["file_name"], stats["n_sampled"], stats["n_tissue_tiles"],
+                    log.info("%s %s: %d of %d tissue tiles (%d dropped), %.0f MB, %.0f s",
+                             row["patient_id"], row["file_name"], stats["n_sampled"],
+                             stats["n_tissue_tiles"], stats["n_dropped"],
                              stats["h5_bytes"] / 1e6, stats["seconds"])
                 bar.update(1)
         except KeyboardInterrupt:
