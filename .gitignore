@@ -1,0 +1,22 @@
+# Data never goes in the repo (course rule: no data files in the submission)
+*.svs
+*.part
+*.part.bad-*
+raw/
+state/
+patches/
+*.h5
+*.zarr/
+
+# Run logs: ignored by default. Add the ones to submit explicitly:
+#   git add -f logs/<file>.log
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
