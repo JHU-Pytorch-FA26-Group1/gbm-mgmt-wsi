@@ -1,2 +1,11 @@
 requests
 tqdm
+tiatoolbox==2.1.3
+h5py
+numpy
+opencv-python
+openslide-python
+openslide-bin
+pillow
+pyyaml
+scikit-image

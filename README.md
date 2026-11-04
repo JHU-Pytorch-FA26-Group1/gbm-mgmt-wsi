@@ -32,6 +32,10 @@ Google Colab (pip):
 !pip install -r requirements.txt
 ```
 
+Both install everything in `requirements.txt`, including TIAToolbox 2.1.3 for tiling. TIAToolbox is large
+(it pulls in PyTorch) and pins versions of NumPy and PyTorch. On Colab, if you only need to download
+slides, `!pip install requests tqdm` is enough and leaves Colab's own packages alone.
+
 ## Downloading slides
 
 The download is split by patient into two subsets, A and B, so two people can each download about
@@ -97,15 +101,85 @@ Each run also writes a log file to `logs/download_<subset>_<timestamp>.log`.
 Exit codes: `0` every selected slide verified · `1` slides still pending or failed (rerun to retry)
 · `2` setup or source-metadata problem · `130` interrupted with Ctrl-C.
 
+## Tiling slides into patches
+
+`data_prep/tile.py` cuts each downloaded slide into tissue tiles. The tile grid, the tissue filter and
+the tile reads are TIAToolbox's `SlidingWindowPatchExtractor`; the script adds the tissue mask, the capped
+random sample, storage, receipts and parallel processing. The settings live in `configs/tiling.yaml`:
+
+| Setting | Value | Meaning |
+|---|---|---|
+| `tile_px`, `target_mpp` | 256, 0.5 | Every tile is 256 × 256 px at exactly 0.5 µm/px (128 µm), matching PixCell-256. The grid has no overlap (stride = 256 px). |
+| `mask_mpp` | 8.0 | The tissue mask is computed on a thumbnail at 8 µm/px. |
+| `mask_method` | saturation_multiotsu | Tissue is colored and background is white or gray, so the mask thresholds the HSV saturation channel (median-blurred, `mask_median_px`), using the lower cut of a three-class Otsu so pale tissue counts as tissue, then closes small gaps (`mask_close_px`). `otsu_gray` uses TIAToolbox's grayscale `OtsuTissueMasker` instead. |
+| `min_tissue_fraction` | 0.5 | A grid tile is kept if more than half of it is tissue. |
+| `max_tiles_per_slide`, `seed` | 2000, 0 | Above the cap, tiles are sampled at random with a per-slide seed, so reruns pick the same tiles. |
+| `jpeg_quality` | 90 | Tiles are stored as JPEG. |
+
+Tiles are resampled with TIAToolbox's default interpolation: area averaging when shrinking (the 40×
+slides), cubic when enlarging. The file's SHA-256 is recorded in every output. Changing any setting
+makes `tile.py` redo every slide; bump `version` when you do.
+
+```
+python data_prep/tile.py --root ~/Bioinformatics/WSI/data --subset B --dry-run
+python data_prep/tile.py --root ~/Bioinformatics/WSI/data --subset B --slides C3N-02786-23
+python data_prep/tile.py --root ~/Bioinformatics/WSI/data --subset B
+```
+
+| Option | Meaning |
+|---|---|
+| `--root`, `--subset` | Same as download.py (required). Only downloaded and verified slides are tiled. |
+| `--slides ID ...` | Only these slides, by slide ID or file-name prefix (for a pilot). |
+| `--workers N` | Slides processed in parallel (default: CPU count − 1). |
+| `--sources`, `--config`, `--manifest`, `--log-dir`, `--dry-run` | As in download.py. |
+
+Ctrl-C stops the run; finished slides are kept and the next run continues with the rest.
+
+### Tiling outputs
+
+```
+<root>/
+  patches/{TCGA,CPTAC}/<patient_id>/<slide_id>.h5       tiles for one slide
+  patches/{TCGA,CPTAC}/<patient_id>/<slide_id>_qc.png   thumbnail: tissue outline (green), sampled tiles (blue)
+  patches/index_<subset>.csv                            one row per tiled slide
+  state/tiling/{TCGA,CPTAC}/<slide_id>.json             receipt: config hash, tile counts, file hash
+```
+
+Each `.h5` file holds:
+
+- `tiles`: JPEG bytes, one per sampled tile
+- `coords`: top-left x, y of each tile at 0.5 µm/px, in the same order. These are TIAToolbox
+  `coord_space="resolution"` coordinates: `wsi.read_rect((x, y), (256, 256), 0.5, "mpp",
+  coord_space="resolution")` reads the same tile again.
+- `coords_level0`: top-left of the full-resolution region TIAToolbox read for each tile (for
+  heatmaps and overlays)
+- `tissue_coords`: `coords` for every tissue tile, including those not sampled
+
+Its attributes record the slide's own µm/px, the tile geometry, tile counts, the full config
+and the library versions. To read a tile:
+
+```python
+import h5py, io
+from PIL import Image
+with h5py.File("slide.h5") as h5:
+    tile = Image.open(io.BytesIO(h5["tiles"][0].tobytes()))   # 256 x 256 RGB
+    x, y = h5["coords_level0"][0]                              # full-resolution position
+```
+
+Exit codes: `0` every selected slide tiled · `1` slides failed or not yet downloaded · `2` setup or
+config problem · `130` interrupted with Ctrl-C.
+
 ## Repository layout
 
 ```
 data_prep/download.py   download with resume and verification
 data_prep/split.py      patient-level A/B split
+data_prep/tile.py       tissue tiles with TIAToolbox
+configs/tiling.yaml     tiling settings
 manifests/              frozen slide manifest
 logs/                   run logs (ignored by git; add submitted logs with git add -f)
 environment.yml         conda environment
-requirements.txt        pip requirements (Colab)
+requirements.txt        pip requirements (also used by environment.yml)
 ```
 
 ## Status

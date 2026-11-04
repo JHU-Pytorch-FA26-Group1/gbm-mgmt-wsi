@@ -57,6 +57,32 @@ class SourceChanged(Exception):
     """The server's file no longer matches the frozen manifest; stop and inspect."""
 
 
+class ConsoleFormatter(logging.Formatter):
+    """Console lines without a level prefix, except for warnings and errors."""
+
+    def format(self, record):
+        message = super().format(record)
+        return message if record.levelno <= logging.INFO else f"{record.levelname} {message}"
+
+
+def setup_logging(logger, log_dir, stem):
+    """Log to the console and to `log_dir/<stem>_<timestamp>.log`; return the log file path.
+
+    The file keeps a timestamp and level on every line; the console shows the level only for
+    warnings and errors.
+    """
+    log_dir.mkdir(parents=True, exist_ok=True)
+    path = log_dir / f"{stem}_{datetime.now():%Y%m%d_%H%M%S}.log"
+    file_handler = logging.FileHandler(path, encoding="utf-8")
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    console = logging.StreamHandler(sys.stderr)
+    console.setFormatter(ConsoleFormatter("%(message)s"))
+    logger.setLevel(logging.INFO)
+    logger.handlers = [file_handler, console]
+    logger.propagate = False
+    return path
+
+
 def parse_args(argv=None):
     """Parse command-line options; pass `argv` as a list to test without a shell."""
     parser = argparse.ArgumentParser(
@@ -485,15 +511,7 @@ def main(argv=None):
     progress_csv = args.root / "state" / f"progress{suffix}.csv"
     transfer_log = args.root / "state" / f"transfer_log{suffix}.jsonl"
 
-    args.log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = args.log_dir / f"download_{args.subset}_{datetime.now():%Y%m%d_%H%M%S}.log"
-    file_handler = logging.FileHandler(log_path, encoding="utf-8")
-    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-    console = logging.StreamHandler(sys.stderr)
-    console.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
-    log.setLevel(logging.INFO)
-    log.handlers = [file_handler, console]
-    log.propagate = False
+    log_path = setup_logging(log, args.log_dir, f"download_{args.subset}")
     log.info("Command: %s", " ".join(sys.argv))
     log.info("Root %s | subset %s | sources %s | log %s", args.root, args.subset,
              " ".join(args.sources), log_path)

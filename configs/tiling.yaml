@@ -1,0 +1,15 @@
+# Patch extraction settings for data_prep/tile.py. The file's SHA-256 is recorded in every output;
+# changing anything here makes tile.py redo every slide. Bump `version` when you change a value.
+# Grid, tissue filtering and tile reads use TIAToolbox's SlidingWindowPatchExtractor; tiles are
+# resampled with TIAToolbox's default interpolation (area for downsampling, cubic for upsampling).
+version: tiling-v3
+tile_px: 256               # output tile size in pixels; also the grid stride (no overlap)
+target_mpp: 0.5            # every tile is read at exactly 0.5 um/px (256 px = 128 um)
+mask_mpp: 8.0              # thumbnail resolution used for the tissue mask
+mask_method: saturation_multiotsu  # or otsu_gray (TIAToolbox's grayscale Otsu, for comparison)
+mask_median_px: 5          # median blur of the saturation channel, in thumbnail px (5 px = 40 um)
+mask_close_px: 5           # morphological closing to fill small gaps, in thumbnail px
+min_tissue_fraction: 0.5   # keep tiles where MORE than this fraction is tissue (or all of it)
+max_tiles_per_slide: 2000  # random sample (without replacement) above this many tissue tiles
+seed: 0                    # per-slide RNG seed = hash(seed, slide_id), independent of run order
+jpeg_quality: 90
