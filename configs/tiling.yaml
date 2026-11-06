@@ -2,7 +2,7 @@
 # changing anything here makes tile.py redo every slide. Bump `version` when you change a value.
 # Grid, tissue filtering and tile reads use TIAToolbox's SlidingWindowPatchExtractor; tiles are
 # resampled with TIAToolbox's default interpolation (area for downsampling, cubic for upsampling).
-version: tiling-v4
+version: tiling-v5
 tile_px: 256               # output tile size in pixels; also the grid stride (no overlap)
 target_mpp: 0.5            # every tile is read at exactly 0.5 um/px (256 px = 128 um)
 mask_mpp: 8.0              # thumbnail resolution used for the tissue mask

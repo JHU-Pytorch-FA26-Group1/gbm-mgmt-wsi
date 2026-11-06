@@ -119,7 +119,8 @@ random sample, storage, receipts and parallel processing. The settings live in `
 
 Tiles are resampled with TIAToolbox's default interpolation: area averaging when shrinking (the 40×
 slides), cubic when enlarging. The file's SHA-256 is recorded in every output. Changing any setting
-makes `tile.py` redo every slide; bump `version` when you do.
+makes `tile.py` redo every slide; bump `version` when you do. Every setting is checked for type and
+range before any slide is processed, and a bad value stops the run with exit code 2.
 
 ```
 python data_prep/tile.py --root ~/Bioinformatics/WSI/data --subset B --dry-run
@@ -135,6 +136,12 @@ python data_prep/tile.py --root ~/Bioinformatics/WSI/data --subset B
 | `--sources`, `--config`, `--manifest`, `--log-dir`, `--dry-run` | As in download.py. |
 
 Ctrl-C stops the run; finished slides are kept and the next run continues with the rest.
+
+On a rerun, a slide is skipped only if its receipt matches the current config and `tile.py`'s
+`CODE_VERSION`, its `.h5` file has the size recorded in the receipt, and its QC image exists.
+Otherwise it is tiled again. Bump `CODE_VERSION` in `tile.py` whenever a code change alters the
+outputs, so old outputs are not reused. If no slide in the subset is tiled with the current config,
+the old `index_<subset>.csv` is removed rather than left looking current.
 
 ### Tiling outputs
 
@@ -156,6 +163,12 @@ Each `.h5` file holds:
   heatmaps and overlays)
 - `tissue_coords`: `coords` for every tissue tile, including those not sampled
 - `dropped_coords`: `coords` of tiles removed by the quality filter
+- `glass`, `blur`: each kept tile's glass fraction and blur score, in the same order as `tiles`
+  (measured before JPEG encoding)
+
+Tiles are visited in random order until the cap is reached, so tiles after that point are never
+examined. `n_examined` (kept + dropped) records how many were, and `n_dropped` counts the drops
+among those, not every low-quality tile on the slide.
 
 Its attributes record the slide's own µm/px, the tile geometry, tile counts, the full config
 and the library versions. To read a tile:
