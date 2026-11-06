@@ -50,10 +50,10 @@ from download import (DEFAULT_LOG_DIR, DEFAULT_MANIFEST, REPO_ROOT, SOURCES, loa
 
 DEFAULT_CONFIG = REPO_ROOT / "configs" / "tiling.yaml"
 # Bump whenever a change to this file alters the outputs; slides tiled by an older version are redone.
-CODE_VERSION = 5
+CODE_VERSION = 6
 CONFIG_KEYS = {"version", "tile_px", "target_mpp", "mask_mpp", "mask_method", "mask_median_px",
-               "mask_close_px", "min_tissue_fraction", "max_tiles_per_slide", "max_glass_fraction",
-               "min_blur", "seed", "jpeg_quality"}
+               "mask_close_px", "mask_min_saturation", "min_tissue_fraction", "max_tiles_per_slide",
+               "max_glass_fraction", "min_blur", "seed", "jpeg_quality"}
 MASK_METHODS = ("saturation_multiotsu", "otsu_gray")
 
 log = logging.getLogger("tile")
@@ -113,6 +113,7 @@ def load_config(path):
         "mask_median_px": is_int(v["mask_median_px"]) and v["mask_median_px"] >= 3
                           and v["mask_median_px"] % 2 == 1,
         "mask_close_px": is_int(v["mask_close_px"]) and v["mask_close_px"] >= 1,
+        "mask_min_saturation": is_num(v["mask_min_saturation"]) and 0 <= v["mask_min_saturation"] <= 255,
         "min_tissue_fraction": is_num(v["min_tissue_fraction"]) and 0 <= v["min_tissue_fraction"] <= 1,
         "max_tiles_per_slide": is_int(v["max_tiles_per_slide"]) and v["max_tiles_per_slide"] >= 1,
         "max_glass_fraction": is_num(v["max_glass_fraction"]) and 0 <= v["max_glass_fraction"] <= 1,
@@ -164,43 +165,48 @@ def tile_quality(img):
 
 
 def tissue_mask(thumb, cfg):
-    """Return (0/1 uint8 tissue mask, threshold) for an RGB thumbnail.
+    """Return (0/1 uint8 tissue mask, threshold used, Otsu threshold) for an RGB thumbnail.
 
     "saturation_multiotsu": tissue is colored and background is white or gray, so threshold the
     HSV saturation channel (median-blurred). A two-class Otsu cut lands between pale and strongly
     stained tissue on heavily stained slides, so use the lower cut of a three-class Otsu
-    (background / pale / strong), then close small gaps.
-    "otsu_gray": TIAToolbox's OtsuTissueMasker (grayscale Otsu, no cleanup); threshold is None.
+    (background / pale / strong), then close small gaps. On very faintly stained slides that cut
+    falls inside the background noise and the mask covers glass, so the threshold used is never
+    below `mask_min_saturation`. A thumbnail with fewer than three saturation levels (blank) cannot
+    be split three ways; it uses `mask_min_saturation` alone and the Otsu threshold is None.
+    "otsu_gray": TIAToolbox's OtsuTissueMasker (grayscale Otsu, no cleanup); both thresholds are None.
     """
     if cfg["mask_method"] == "otsu_gray":
-        return OtsuTissueMasker().fit_transform([thumb])[0].astype(np.uint8), None
+        return OtsuTissueMasker().fit_transform([thumb])[0].astype(np.uint8), None, None
     saturation = cv2.cvtColor(np.ascontiguousarray(thumb[..., :3]), cv2.COLOR_RGB2HSV)[..., 1]
     saturation = cv2.medianBlur(saturation, cfg["mask_median_px"])
-    levels = len(np.unique(saturation))
-    if levels < 3:   # a three-class Otsu needs at least three distinct values (blank slide?)
-        raise ValueError(f"mask: only {levels} saturation levels in the thumbnail")
-    thresholds = threshold_multiotsu(saturation, classes=3)
-    mask = (np.digitize(saturation, thresholds) >= 1).astype(np.uint8)
+    otsu = None
+    if len(np.unique(saturation)) >= 3:
+        otsu = float(threshold_multiotsu(saturation, classes=3)[0])
+    threshold = float(max(otsu, cfg["mask_min_saturation"]) if otsu is not None
+                      else cfg["mask_min_saturation"])
+    mask = (saturation >= threshold).astype(np.uint8)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cfg["mask_close_px"],) * 2)
-    return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel), float(thresholds[0])
+    return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel), threshold, otsu
 
 
 def tissue_grid(wsi, cfg):
     """Mask a thumbnail and build TIAToolbox's tile grid over the tissue.
 
-    Returns (thumbnail, mask, mask threshold, extractor). The extractor is a
+    Returns (thumbnail, mask, threshold used, Otsu threshold, extractor). The extractor is a
     SlidingWindowPatchExtractor: a non-overlapping grid of `tile_px` tiles at `target_mpp`,
     keeping tiles where more than `min_tissue_fraction` of the tile is tissue (or all of it).
     `extractor.coordinate_list` holds the kept tiles as [x0, y0, x1, y1] at `target_mpp`;
-    `extractor[i]` reads tile i.
+    `extractor[i]` reads tile i. An empty mask gives an empty coordinate_list (TIAToolbox only
+    warns).
     """
     thumb = wsi.slide_thumbnail(cfg["mask_mpp"], "mpp")
-    mask, threshold = tissue_mask(thumb, cfg)
+    mask, threshold, otsu = tissue_mask(thumb, cfg)
     extractor = SlidingWindowPatchExtractor(
         wsi, cfg["tile_px"], input_mask=VirtualWSIReader(mask, info=wsi.info, mode="bool"),
         resolution=cfg["target_mpp"], units="mpp", stride=cfg["tile_px"],
         min_mask_ratio=cfg["min_tissue_fraction"], within_bound=True)
-    return thumb, mask, threshold, extractor
+    return thumb, mask, threshold, otsu, extractor
 
 
 def write_qc(path, thumb, mask, coords, tile_px, scale_x, scale_y):
@@ -220,7 +226,11 @@ def write_qc(path, thumb, mask, coords, tile_px, scale_x, scale_y):
 
 
 def tile_slide(root, row, cfg, config_sha, config_text):
-    """Tile one slide (runs in a worker process). Returns a stats dict for its receipt."""
+    """Tile one slide (runs in a worker process). Returns a stats dict for its receipt.
+
+    A slide with no tissue tiles, or none left after the quality filter, is still written, with
+    zero tiles (n_sampled = 0), so it is recorded in the index and not retried on every run.
+    """
     started = time.monotonic()
     slide_path = paths_for(root, row)[0]
     h5_path, qc_path, _ = output_paths(root, row)
@@ -230,10 +240,8 @@ def tile_slide(root, row, cfg, config_sha, config_text):
     info = wsi.info
     if info.mpp is None or not all(np.isfinite(info.mpp)) or min(info.mpp) <= 0:
         raise ValueError(f"missing or invalid mpp: {info.mpp}")
-    thumb, mask, threshold, extractor = tissue_grid(wsi, cfg)
+    thumb, mask, threshold, otsu, extractor = tissue_grid(wsi, cfg)
     tissue = extractor.coordinate_list[:, :2].astype(np.int64)   # top-left at target_mpp
-    if not len(tissue):
-        raise ValueError("no tissue tiles")
 
     # Visit tissue tiles in a seeded random order and keep those that pass the quality filter,
     # until max_tiles_per_slide are kept. Dropped tiles are replaced, so the cap is still reached.
@@ -253,9 +261,7 @@ def tile_slide(root, row, cfg, config_sha, config_text):
         Image.fromarray(img).save(buffer, format="JPEG", quality=cfg["jpeg_quality"])
         encoded[int(index)] = np.frombuffer(buffer.getvalue(), dtype=np.uint8)
         quality[int(index)] = (glass, blur)
-    if not encoded:
-        raise ValueError(f"no tiles left after the quality filter ({len(dropped)} dropped)")
-    chosen = np.sort(list(encoded))       # grid order, so neighbouring tiles stay together
+    chosen = np.sort(np.array(list(encoded), dtype=np.int64))   # grid order, neighbours together
     count = len(chosen)
     examined = count + len(dropped)
     coords = tissue[chosen]
@@ -264,7 +270,7 @@ def tile_slide(root, row, cfg, config_sha, config_text):
     # The level-0 region TIAToolbox reads for each tile (its own conversion, which rounds up).
     coords_level0 = np.array([wsi.bounds_at_resolution_to_baseline(
         [x, y, x + tile_px, y + tile_px], cfg["target_mpp"], "mpp")[:2] for x, y in coords],
-        dtype=np.int64)
+        dtype=np.int64).reshape(-1, 2)
 
     temporary = h5_path.with_name(h5_path.name + ".tmp")
     with h5py.File(temporary, "w") as h5:
@@ -289,6 +295,7 @@ def tile_slide(root, row, cfg, config_sha, config_text):
                  "interpolation": "optimize (TIAToolbox default: area down, cubic up)",
                  "mask_method": cfg["mask_method"],
                  "mask_threshold": -1.0 if threshold is None else threshold,
+                 "mask_otsu_threshold": -1.0 if otsu is None else otsu,
                  "mask_fraction": float(mask.mean()),
                  "level_dimensions": json.dumps([list(map(int, d)) for d in info.level_dimensions]),
                  "level_downsamples": json.dumps([float(d) for d in info.level_downsamples]),
@@ -313,6 +320,7 @@ def tile_slide(root, row, cfg, config_sha, config_text):
             "h5_sha256": digest, "h5_bytes": h5_path.stat().st_size,
             "n_tissue_tiles": len(tissue), "n_sampled": count, "n_examined": examined,
             "n_dropped": len(dropped), "source_mpp": float(info.mpp[0]), "mask_threshold": threshold,
+            "mask_otsu_threshold": otsu,
             "config_sha256": config_sha, "code_version": CODE_VERSION, "tiling_version": cfg["version"],
             "seconds": round(time.monotonic() - started, 1),
             "tiled_at_utc": datetime.now(timezone.utc).isoformat()}
@@ -403,10 +411,11 @@ def main(argv=None):
                     log.error("%s %s failed: %s", row["patient_id"], row["file_name"], error)
                 else:
                     write_json(output_paths(args.root, row)[2], stats)
-                    log.info("%s %s: %d of %d tissue tiles (%d dropped), %.0f MB, %.0f s",
-                             row["patient_id"], row["file_name"], stats["n_sampled"],
-                             stats["n_tissue_tiles"], stats["n_dropped"],
-                             stats["h5_bytes"] / 1e6, stats["seconds"])
+                    log.log(logging.INFO if stats["n_sampled"] else logging.WARNING,
+                            "%s %s: %d of %d tissue tiles (%d dropped), %.0f MB, %.0f s",
+                            row["patient_id"], row["file_name"], stats["n_sampled"],
+                            stats["n_tissue_tiles"], stats["n_dropped"],
+                            stats["h5_bytes"] / 1e6, stats["seconds"])
                 bar.update(1)
         except KeyboardInterrupt:
             interrupted = True

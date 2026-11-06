@@ -112,6 +112,7 @@ random sample, storage, receipts and parallel processing. The settings live in `
 | `tile_px`, `target_mpp` | 256, 0.5 | Every tile is 256 × 256 px at exactly 0.5 µm/px (128 µm), matching PixCell-256. The grid has no overlap (stride = 256 px). |
 | `mask_mpp` | 8.0 | The tissue mask is computed on a thumbnail at 8 µm/px. |
 | `mask_method` | saturation_multiotsu | Tissue is colored and background is white or gray, so the mask thresholds the HSV saturation channel (median-blurred, `mask_median_px`), using the lower cut of a three-class Otsu so pale tissue counts as tissue, then closes small gaps (`mask_close_px`). `otsu_gray` uses TIAToolbox's grayscale `OtsuTissueMasker` instead. |
+| `mask_min_saturation` | 8 | The mask threshold is never below 8, the same cut the glass rule uses for "uncolored". On very faintly stained slides the Otsu cut falls inside the background noise (as low as 2) and the mask would cover the glass. |
 | `min_tissue_fraction` | 0.5 | A grid tile is kept if more than half of it is tissue. |
 | `max_tiles_per_slide`, `seed` | 2000, 0 | Above the cap, tiles are sampled at random with a per-slide seed, so reruns pick the same tiles. |
 | `max_glass_fraction`, `min_blur` | 0.9, 20 | Quality filter: a sampled tile is dropped if more than 90% of it is uncolored glass (saturation < 8, brightness > 200) or its blur score (variance of the Laplacian) is below 20, i.e. empty or featureless. Dropped tiles are replaced by the next tissue tile in the random order, so the cap is still reached. |
@@ -170,8 +171,15 @@ Tiles are visited in random order until the cap is reached, so tiles after that 
 examined. `n_examined` (kept + dropped) records how many were, and `n_dropped` counts the drops
 among those, not every low-quality tile on the slide.
 
-Its attributes record the slide's own µm/px, the tile geometry, tile counts, the full config
-and the library versions. To read a tile:
+Its attributes record the slide's own µm/px, the tile geometry, tile counts, the mask threshold
+used (`mask_threshold`) and the Otsu cut before the minimum was applied (`mask_otsu_threshold`), the
+full config and the library versions.
+
+A slide with no tissue tiles, or none left after the quality filter, is still written with zero
+tiles and logged as a warning, so it shows up in the index with `n_sampled` 0 and is not retried on
+every run. Filter those out before training (`index[index.n_sampled > 0]`).
+
+To read a tile:
 
 ```python
 import h5py, io
