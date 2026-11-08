@@ -1,0 +1,9 @@
+# Tile QC decisions for data_prep/qc.py. tile.py stores every tissue tile with its scores; this file
+# decides which are used, so changing a value here never requires re-tiling. Bump `version` when
+# you change a value: decisions go to patches/<tiling version>/qc/<version>/.
+# These are pilot values for team review, not validated cutoffs.
+version: qc-v1
+max_glass_fraction: 0.9    # reject: more than this fraction of the tile is uncolored glass
+blank_fraction: 0.99       # reject: at least this fraction is near-white, or near-black
+dark_mean_rgb: 50          # review: mean R, G and B all below this (null = off)
+min_blur: null             # review: Laplacian variance below this (null = off; team decision)

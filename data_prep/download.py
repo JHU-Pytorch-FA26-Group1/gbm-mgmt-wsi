@@ -4,6 +4,7 @@ Examples:
     python data_prep/download.py --root ~/Bioinformatics/WSI/data --subset B --dry-run
     python data_prep/download.py --root ~/Bioinformatics/WSI/data --subset B
     python data_prep/download.py --root /content/drive/MyDrive/GBM_MGMT --subset A --minutes 600
+    python data_prep/download.py --root /workspace/GBM_MGMT --subset A --register
 
 Exit codes: 0 = every selected slide verified, 1 = some slides still pending or failed,
 2 = setup or source-metadata problem, 130 = interrupted with Ctrl-C.
@@ -101,6 +102,9 @@ def parse_args(argv=None):
                         help="stop after downloading this many MB in this run (for a pilot)")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the selection summary and exit without downloading")
+    parser.add_argument("--register", action="store_true",
+                        help="verify slides already in raw/ (e.g. copied from a teammate) and "
+                             "write their receipts; download nothing")
     parser.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR,
                         help="folder for run .log files (default: %(default)s)")
     return parser.parse_args(argv)
@@ -497,8 +501,44 @@ def collect(args, files, transfer_log, progress_csv):
     return 0
 
 
+def register(args, files, progress_csv):
+    """Verify slides already in raw/ and write the receipts tile.py expects. Downloads nothing.
+
+    For slides copied in from elsewhere (another machine, a teammate's Drive). A file passes the
+    same checks as a download: manifest size, TIFF/SVS header and, for TCGA, the GDC MD5. CPTAC has
+    no publisher checksum, so its SHA-256 is computed and recorded with publisher_md5_checked =
+    false. A file that fails is left in place and reported. Returns an exit code.
+    """
+    root = args.root
+    selected = [r for r in files if r["source"] in args.sources]
+    present = [r for r in selected
+               if not slide_progress(root, r)[0] and paths_for(root, r)[0].exists()]
+    log.info("Registering %d slides found in raw/ without a receipt", len(present))
+    failed = []
+    try:
+        with logging_redirect_tqdm(loggers=[log]):
+            for row in tqdm(present, desc="register", unit="slide", dynamic_ncols=True,
+                            disable=not sys.stderr.isatty()):
+                final, _, _, receipt = paths_for(root, row)
+                try:
+                    write_json(receipt, verify_file(row, final))
+                except (OSError, ValueError) as error:
+                    failed.append(row)
+                    log.error("%s %s not registered: %s", row["patient_id"], row["file_name"], error)
+    except KeyboardInterrupt:
+        log.info("Stopped: interrupted. Registered slides are kept; rerun to continue.")
+        return 130
+    table = summarize(root, files, progress_csv, f"After registering (subset {args.subset})")
+    missing = [r for r in table if r["source"] in args.sources and r["status"] != "complete"]
+    if failed or missing:
+        log.warning("%d selected slides failed verification or are not in raw/", len(missing))
+        return 1
+    log.info("All selected slides are verified.")
+    return 0
+
+
 def main(argv=None):
-    """Set up logging and the data folder, check the manifest, then dry-run or collect.
+    """Set up logging and the data folder, check the manifest, then dry-run, register or collect.
 
     Returns the process exit code (see the module docstring)."""
     args = parse_args(argv)
@@ -572,6 +612,8 @@ def main(argv=None):
                             need / 1e9, FREE_SPACE_MARGIN / 1e9)
             log.info("Dry run: nothing downloaded.")
             return 0
+        if args.register:
+            return register(args, files, progress_csv)
         if short:
             raise RuntimeError(f"need {need / 1e9:.0f} GB + {FREE_SPACE_MARGIN / 1e9:.0f} GB; "
                                f"free {free / 1e9:.0f} GB")

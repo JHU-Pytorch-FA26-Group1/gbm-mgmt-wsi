@@ -1,19 +1,25 @@
 # Patch extraction settings for data_prep/tile.py. The file's SHA-256 is recorded in every output;
-# changing anything here makes tile.py redo every slide. Bump `version` when you change a value.
-# Grid, tissue filtering and tile reads use TIAToolbox's SlidingWindowPatchExtractor; tiles are
-# resampled with TIAToolbox's default interpolation (area for downsampling, cubic for upsampling).
-version: tiling-v6
-tile_px: 256               # output tile size in pixels; also the grid stride (no overlap)
-target_mpp: 0.5            # every tile is read at exactly 0.5 um/px (256 px = 128 um)
+# changing anything here makes tile.py redo every slide. Bump `version` when you change a value:
+# outputs go to patches/<version>/, and tile.py refuses to mix configs or code versions in one folder.
+# Grid and tile reads use TIAToolbox's SlidingWindowPatchExtractor; tiles are resampled with
+# TIAToolbox's default interpolation (area for downsampling, cubic for upsampling).
+# QC decisions (glass, blur, darkness cutoffs) are not made here: see configs/qc_policy.yaml.
+version: tiling-v7
+tile_px: 224               # output tile size in pixels; also the grid stride (no overlap)
+target_mpp: 0.5            # every tile is read at exactly 0.5 um/px (224 px = 112 um)
+max_upsample_pct: 1.0      # fail a slide whose native um/px needs more than 1% enlargement
 mask_mpp: 8.0              # thumbnail resolution used for the tissue mask
-mask_method: saturation_multiotsu  # or otsu_gray (TIAToolbox's grayscale Otsu, for comparison)
+mask_method: saturation_multiotsu  # or saturation_otsu (two-class) or otsu_gray (TIAToolbox grayscale)
 mask_median_px: 5          # median blur of the saturation channel, in thumbnail px (5 px = 40 um)
-mask_close_px: 5           # morphological closing to fill small gaps, in thumbnail px
-mask_min_saturation: 8     # the mask threshold is never below this (= the glass rule's "uncolored" cut)
-min_tissue_fraction: 0.5   # keep tiles where MORE than this fraction is tissue (or all of it)
-max_tiles_per_slide: 2000  # random sample (without replacement) above this many tissue tiles
-max_glass_fraction: 0.9    # drop a sampled tile if more than this fraction is uncolored glass
-min_blur: 20.0             # drop a sampled tile whose Laplacian variance is below this (empty/featureless)
-                           # dropped tiles are replaced by the next tissue tile in the random order
-seed: 0                    # per-slide RNG seed = hash(seed, slide_id), independent of run order
-jpeg_quality: 90
+mask_close_px: 5           # morphological closing to fill small gaps, in thumbnail px (0 = off)
+mask_min_saturation: 8     # the mask threshold is never below this (0 = no floor)
+min_tissue_fraction: 0.5   # a tile is tissue if MORE than this fraction is masked (or all of it)
+max_tiles_per_slide: null  # store pixels for at most this many tissue tiles per slide (null = all);
+                           # every tissue tile is still scored and recorded, and can be reread
+seed: 0                    # per-slide sample seed = hash(seed, slide_id), independent of run order
+# Score definitions, measured on every tile that touches the mask:
+glass_max_saturation: 8    # glass pixel: HSV saturation below this ...
+glass_min_value: 200       # ... and brightness above this
+near_white_value: 250      # near-white pixel: all RGB channels >= this
+near_black_value: 5        # near-black pixel: all RGB channels <= this
+png_compress_level: 1      # tiles are stored as lossless PNG; 0-9 trades speed for size only
