@@ -116,16 +116,52 @@ Each run also writes a log file to `logs/download_<subset>_<timestamp>.log`.
 Exit codes: `0` every selected slide verified · `1` slides still pending or failed (rerun to retry)
 · `2` setup or source-metadata problem · `130` interrupted with Ctrl-C.
 
+## Processing pipeline
+
+After download, each subset goes through these steps. `scripts/run_pipeline.sh` runs them in order with
+one command and stops at the first step that fails:
+
+| Step | Script | What it does |
+|---|---|---|
+| register | `download.py --register` | Optional: verify slides copied from elsewhere and write their receipts |
+| masks | `tile.py --masks-only` | Optional: mask comparison panels for review; tiles nothing |
+| tile | `tile.py` | Read, score and record every tissue tile; store the pixels of up to `max_tiles_per_slide` per slide |
+| audit | `tile.py --audit` | Recheck every file and every stored tile's pixel hash, and save the result |
+| qc | `qc.py` | Apply `configs/qc_policy.yaml`: accept / review / reject per tissue tile |
+| export | `export.py` | Apply human reviews and build `modeling_patches.csv` (needs a frozen policy) |
+
+```
+scripts/run_pipeline.sh --root ~/Bioinformatics/WSI/data --subset B                 # tile, audit, qc, export
+scripts/run_pipeline.sh --root ~/Bioinformatics/WSI/data --subset B --steps masks --workers 8
+scripts/run_pipeline.sh --root /workspace/GBM_MGMT --subset A --steps register,tile,audit,qc
+scripts/run_pipeline.sh --help
+```
+
+It uses the active Python environment (activate `gbm-mgmt` first), passes the failing step's exit code
+through (`1` some slides or patients unfinished, `2` setup problem, `130` interrupted), and each step writes
+its own log to `logs/`. `--dry-run` prints the commands without running them.
+
+The code is split by job, with dependencies in one direction:
+
+```
+common.py   config checks, file writes and hashes, patch IDs, output paths, fold map
+slides.py   slide opening, tissue mask, tile grid, tile roles, scores, cap sample (TIAToolbox)
+tile.py     extraction command line: tiling, --masks-only, --audit
+qc.py       QC policy -> decisions
+review.py   human review records (patch, region, slide sign-off)
+export.py   modeling list with per-patient accounting
+loader.py   for training code: read tiles, Macenko per fold (not used by tiling)
+```
+
 ## Tiling slides into patches
 
 `data_prep/tile.py` cuts each downloaded slide into tissue tiles. The tile grid and tile reads are
-TIAToolbox's `SlidingWindowPatchExtractor`; the script adds the tissue mask, per-tile scores, lossless
-storage, receipts, an integrity audit and parallel processing. It reads, scores and records **every**
-tissue tile, stores the pixels of all of them or of a seeded sample per slide (`max_tiles_per_slide`), and
-makes no quality decisions: those come from `configs/qc_policy.yaml` (see below), so changing a QC
-cutoff never means re-tiling. The real-patch cache feeds both training conditions (real-only and
-real + synthetic); synthetic patches are generated separately and matched to the same 224 px,
-0.5 µm/px geometry.
+TIAToolbox's `SlidingWindowPatchExtractor`; the mask, roles and scores are in `slides.py`. It reads, scores
+and records **every** tissue tile, stores the pixels of all of them or of a seeded sample per slide
+(`max_tiles_per_slide`), and makes no quality decisions: those come from `configs/qc_policy.yaml`, so
+changing a QC cutoff never means re-tiling. The real-patch cache feeds both training conditions
+(real-only and real + synthetic); synthetic patches are generated separately and matched to the same
+224 px, 0.5 µm/px geometry.
 
 The settings live in `configs/tiling.yaml`:
 
@@ -137,16 +173,16 @@ The settings live in `configs/tiling.yaml`:
 | `mask_method` | saturation_multiotsu | Tissue is colored and background is white or gray, so the mask thresholds the HSV saturation channel (median-blurred, `mask_median_px`) using the lower cut of a three-class Otsu, so pale tissue counts as tissue, then closes small gaps (`mask_close_px`, 0 = off). `saturation_otsu` is the two-class version for comparison; `otsu_gray` uses TIAToolbox's grayscale `OtsuTissueMasker`. |
 | `mask_min_saturation` | 8 | The mask threshold is never below 8 (0 = no floor). On very faintly stained slides the three-class cut falls inside the background noise (as low as 2) and the mask would cover the glass. Each slide records whether the floor was applied. |
 | `min_tissue_fraction` | 0.5 | A grid tile is tissue if more than half of it is masked (or all of it), the same rule as TIAToolbox's `min_mask_ratio`. |
-| `max_tiles_per_slide`, `seed` | null, 0 | Store pixels for at most this many tissue tiles per slide (`null` = all). Above the cap, a random sample is drawn with a per-slide seed (hash of `seed` and the slide ID), so reruns and other machines store the same tiles. Every tissue tile is still read, scored and recorded, and any tile not stored can be reread exactly from the slide at its saved coordinates. Set this before a full run: storing every tile of subset B is projected at about 330 GB. |
-| `glass_*`, `near_white_value`, `near_black_value` | 8 / 200, 250, 5 | Score definitions: a glass pixel has saturation < 8 and brightness > 200; near-white / near-black pixels have every channel ≥ 250 / ≤ 5. |
-| `png_compress_level` | 1 | Tiles are stored as PNG, which is lossless at every level; the level only trades speed for file size. |
+| `max_tiles_per_slide`, `seed` | 5508, 0 | Store pixels for at most this many tissue tiles per slide (`null` = all). 5,508 is the median number of tissue tiles per slide in subset B: about 100 GB for subset B, against about 230 GB for every tile. Above the cap, a random sample is drawn with a per-slide seed (hash of `seed` and the slide ID), so reruns and other machines store the same tiles. Every tissue tile is still read, scored, recorded and given a QC decision, and any tile not stored can be reread exactly from the slide. |
+| `glass_*`, `near_white_value`, `near_black_value`, `dark_value`, `green_*` | | Score definitions: a glass pixel has saturation < 8 and brightness > 200; near-white / near-black pixels have every channel ≥ 250 / ≤ 5; a dark pixel has brightness < 60; a green pixel has hue 35–85 and saturation > 60 (OpenCV units). |
+| `png_compress_level` | 6 | Tiles are stored as PNG, which is lossless at every level; the level only trades speed for file size. Level 1 makes files about 45% larger on Apple Silicon Macs. |
 
 Tiles are resampled with TIAToolbox's default interpolation: area averaging when shrinking (the 40×
 slides), cubic when enlarging. Every setting is checked for type and range before any slide is
 processed, and a bad value stops the run with exit code 2.
 
 Outputs go to `patches/<version>/` (here `patches/tiling-v7/`), so a new config version never
-overwrites an old one. Change any setting, or `CODE_VERSION` in `tile.py`, and you must bump `version`:
+overwrites an old one. Change any setting, or `CODE_VERSION` in `common.py`, and you must bump `version`:
 `tile.py` refuses to add slides to a folder that already holds slides from another config or code.
 
 ```
@@ -173,13 +209,14 @@ tiled again.
 
 ### Comparing tissue masks (`--masks-only`)
 
-For the mask pilot, `--masks-only` saves a 2 × 2 panel per slide in `patches/<version>/mask_review/`:
-the thumbnail, then the mask outline from a two-class saturation Otsu, a three-class Otsu without
-the floor, and a three-class Otsu with the config's floor. All three use the same thumbnail, median
-blur and closing, so the panels differ only in the number of Otsu classes and the floor. Each panel
-shows its cut, masked fraction and number of tissue tiles, and `mask_review_<subset>.csv` lists the
-same numbers. Nothing is tiled. Review pale regions, tissue edges, small islands and background on
-these panels before choosing the production rule; a larger mask alone is not better.
+For the mask pilot, `--masks-only` saves a 2 × 2 panel per slide in
+`patches/<version>/mask_review/{source}/<file name>.png`: the thumbnail, then the mask outline from a
+two-class saturation Otsu, a three-class Otsu without the floor, and a three-class Otsu with the config's
+floor. All three use the same thumbnail, median blur and closing, so the panels differ only in the number of
+Otsu classes and the floor. Each panel shows its cut, masked fraction and number of tissue tiles, and
+`mask_review_<subset>.csv` lists the same numbers. Nothing is tiled. Review pale regions, tissue edges,
+small islands and background on these panels before choosing the production rule; a larger mask alone is
+not better.
 
 ### Checking the outputs (`--audit`)
 
@@ -187,8 +224,8 @@ The rerun check only compares file sizes. `--audit` recomputes each slide's `.h5
 SHA-256 against its receipt, decodes every stored PNG and compares the hash of its pixels with the
 hash recorded when the tile was read from the slide. The result is saved as
 `state/tiling/<version>/audit_<subset>_<timestamp>.json`, with the config hash and code version.
-Exit code 1 means a mismatch or a selected slide that is not tiled. Run it after the full run and
-before training.
+Exit code 1 means a mismatch or a selected slide that is not tiled. `export.py` only uses slides whose
+latest audit passed after they were tiled.
 
 ### Tiling outputs
 
@@ -205,9 +242,9 @@ before training.
 ```
 
 Every grid position touching the mask is read and scored. **Tissue** tiles are stored (all of them, or the
-seeded sample when `max_tiles_per_slide` is set); **edge** tiles (touching the mask, but not more than half
-tissue) and tissue tiles outside the sample are scored but not stored, and can be reread from their
-coordinates. **Background** tiles are only recorded in the `.h5` grid arrays.
+seeded sample of `max_tiles_per_slide`); **edge** tiles (touching the mask, but not more than half tissue)
+and tissue tiles outside the sample are scored but not stored, and can be reread from their coordinates.
+**Background** tiles are only recorded in the `.h5` grid arrays.
 
 Each `.h5` file holds, for the stored tissue tiles in grid order:
 
@@ -220,30 +257,22 @@ Each `.h5` file holds, for the stored tissue tiles in grid order:
 - `grid_index`: each tile's position in the full grid
 
 and, for every grid position: `grid_coords`, `grid_role` (0 background, 1 edge, 2 tissue),
-`grid_h5_index` (row in `tiles`, or -1 if not stored) and `grid_mask_fraction`. Its attributes record the slide's own µm/px and the upsampling applied, the tile
-geometry, tile counts, the mask threshold used (`mask_threshold`), the Otsu cut before the floor
-(`mask_otsu_threshold`), whether the floor was applied (`mask_floor_applied`), the full config and the
-library versions, including the native OpenSlide library.
+`grid_h5_index` (row in `tiles`, or -1 if not stored) and `grid_mask_fraction`. Its attributes record the
+slide's own µm/px and the upsampling applied, the tile geometry, tile counts, the mask threshold used
+(`mask_threshold`), the Otsu cut before the floor (`mask_otsu_threshold`), whether the floor was applied
+(`mask_floor_applied`), the score fields, the full config and the library versions, including the native
+OpenSlide library.
 
 `_patches.csv` has one row per tissue or edge tile: patch ID, role, `stored`, `h5_index` (row in the `.h5`,
 blank if not stored), grid index, coordinates at 0.5 µm/px and full resolution, mask fraction, the scores
-(mean RGB, grayscale median, Laplacian variance, near-white, near-black and glass fractions) and the
-pixel hash. Patch IDs (`<source>_<16 hex of SHA-256(slide_id)>_<x>_<y>`), column names and score
-definitions match the team's `gbm_patching.py`, so results can be compared at matched coordinates.
+(mean RGB, grayscale median, mean saturation and brightness, Laplacian variance, and the near-white,
+near-black, glass, dark and green fractions) and the pixel hash. Patch IDs
+(`<source>_<16 hex of SHA-256(slide_id)>_<x>_<y>`), column names and shared score definitions match the
+team's `gbm_patching.py`, so results can be compared at matched coordinates.
 
 A slide with no tissue tiles is still written with zero tiles and logged as a warning, so it shows up
 in the index with `n_tissue_tiles` 0 and is not retried on every run. The index and receipts give
 `n_tissue_tiles` (all tissue tiles) and `n_stored_tiles` (tiles with pixels in the `.h5`).
-
-To read a tile:
-
-```python
-import h5py, io
-from PIL import Image
-with h5py.File("slide.h5") as h5:
-    tile = Image.open(io.BytesIO(h5["tiles"][0].tobytes()))   # 224 x 224 RGB
-    x, y = h5["coords_level0"][0]                              # full-resolution position
-```
 
 Exit codes: `0` every selected slide tiled (or audited clean) · `1` slides failed, not yet downloaded,
 or failed the audit · `2` setup or config problem · `130` interrupted with Ctrl-C.
@@ -251,18 +280,22 @@ or failed the audit · `2` setup or config problem · `130` interrupted with Ctr
 ## Tile QC decisions
 
 `data_prep/qc.py` applies `configs/qc_policy.yaml` to the scores in each slide's `_patches.csv` and
-gives every tissue tile a decision, stored or not:
+gives every tissue tile a decision, stored or not. Any reject reason outranks review.
 
 | Setting | Value | Meaning |
 |---|---|---|
 | `max_glass_fraction` | 0.9 | **Reject** a tile whose glass fraction is above 0.9. |
 | `blank_fraction` | 0.99 | **Reject** a tile that is at least 99% near-white or near-black. |
-| `dark_mean_rgb` | 50 | **Review** a tile whose mean R, G and B are all below 50 (`null` = off). |
-| `min_blur` | null | **Review** a tile whose Laplacian variance is below this. Off until the team sets it: low values can mean blur or smooth, low-texture tissue. |
+| `dark_mean_rgb` | 50 | **Review** a tile whose mean R, G and B are all below 50. |
+| `min_blur` | null | **Review** a tile whose Laplacian variance is below this. Off until the team sets it (tiling-v6 used 20): low values can mean blur or smooth, low-texture tissue. A tile with a blur score of exactly 0 (flat, no structure) always goes to review. |
+| `glass_review_above` | null | **Review** a tile whose glass fraction is above this (but not above `max_glass_fraction`). |
+| `pale_review_below`, `pale_value_above` | null, 180 | **Review** a pale, washed-out tile: mean saturation below the first and mean brightness above the second. |
+| `dark_fraction_review_above`, `green_fraction_review_above` | null, null | **Review** a tile with more dark pixels (folds, debris, ink) or green pixels (marker ink) than this. |
+| `frozen`, `reviewer`, `notes` | false, "", "" | Set `frozen: true`, who approved the values and how they were chosen, once the team agrees them. `export.py` only builds a modeling list from a frozen policy. |
 
-These are pilot values for team review, not validated cutoffs. Review cases need a person; only
-`accept` tiles should be used until they are resolved. Bump the policy `version` when you change a
-value.
+`null` turns a review rule off. These are pilot values for team review, not validated cutoffs. The policy
+uses no MGMT labels; one label-blind policy, frozen before training, serves every fold. Bump `version`
+when you change a value.
 
 ```
 python data_prep/qc.py --root ~/Bioinformatics/WSI/data --subset B
@@ -273,16 +306,121 @@ It writes to `patches/<tiling version>/qc/<policy version>/`: `{source}/{patient
 `slides_<subset>.csv` (counts and reasons per slide) and `policy_<subset>.json` (the policy, its hash
 and the tiling index it was applied to).
 
+## Human review
+
+`data_prep/review.py` keeps review records apart from the tiling outputs, as CSVs under
+`<root>/review/<tiling version>/`. Use the notebook's "Recording reviews" cell or call it from Python:
+
+```python
+import review
+review.append_patch_review(ROOT, "tiling-v7", patch_id, "reject", "Couger", "fold")
+review.append_region(ROOT, "tiling-v7", "TCGA", slide_id, (x0, y0, x1, y1), "reject", "Couger", "pen")
+review.sign_off_slide(ROOT, "tiling-v7", "TCGA", slide_id, "approve", "Couger", mask=True, focus=True)
+review.sign_off_slide(ROOT, "tiling-v7", "TCGA", slide_id, "exclude", "Couger", notes="almost unstained")
+```
+
+- **Patch review:** accept, reject or review one tile, with a defect type.
+- **Artifact region:** a level-0 box around a technical artifact; every tissue tile it touches is rejected
+  (or sent to review).
+- **Slide sign-off:** approve a slide, recording what was checked, or exclude it with a reason. Sign-off is
+  not required for every slide: it records which slides a person reviewed (for example the flagged ones
+  plus a random sample). An excluded slide counts as accounted for, so its patient is not blocked.
+
+Records are only ever appended; the latest record for a tile or slide wins. `export.py` applies them on
+top of the QC decision in this order: QC decision → artifact region → patch review → slide exclusion.
+Defect types are technical damage only (fold, tear, bubble, pen, scanner stripe, ...): necrosis,
+hemorrhage, microvascular proliferation and low cellularity are tissue, not defects. Keep MGMT labels out
+of review.
+
+## Export: the model input
+
+`data_prep/export.py` builds `modeling_patches.csv`, the only list the model should read:
+
+```
+python data_prep/export.py --root ~/Bioinformatics/WSI/data --subset B
+```
+
+A tile is included only if:
+
+- its slide was tiled with the current config, and the latest `--audit` covering it passed after tiling;
+- the QC policy is frozen and `qc.py` applied it;
+- after reviews, its decision is accept (review cases and excluded slides stay out);
+- its patient is in the shared fold map (`manifests/patient_folds.csv`) and every one of the patient's
+  slides in the subset is accounted for: exported, or excluded at sign-off.
+
+Accounting is per patient: a patient with a missing, failed or unaudited slide is listed as blocked, with
+the reason, without blocking anyone else. A patient whose accepted tiles are all gone is listed as an
+empty bag. One modeling list serves every fold: each row carries the patient's fold. Accepted tiles
+beyond the tiling cap are included with `stored` False and are reread from the slide.
+
+It writes `patches/<tiling version>/export/<policy version>/<subset>_<UTC time>/`: `modeling_patches.csv`
+(one row per tile: patient, slide, fold, patch ID, coordinates, `stored`, `.h5` and row, slide path,
+pixel hash, and what decided it), `patient_index.csv` (expected, exported and excluded slides, decision
+counts, model tiles, empty bag, blocked reasons), `slide_status.csv` and `export_settings.json` (hashes
+of the policy, fold map, review files, audits and the modeling list). Exit code `1` means some patients
+are blocked (the outputs are still written); `2` means a setup problem such as an unfrozen policy.
+
+`manifests/patient_folds.csv` is the shared fold map for all 234 patients: the 151 TCGA patients in five
+folds (MGMT-stratified, seed 42; labels not stored here) and the 83 CPTAC patients marked `external`.
+Both subsets and both backbones use the same map.
+
+## Reading tiles for training
+
+`data_prep/loader.py` is for the training code; tiling never uses it.
+
+```python
+import loader
+tiles = loader.with_roles(loader.load_modeling(EXPORT_DIR), fold=0)   # role: train, validation, external
+reader = loader.TileReader(ROOT)          # one per data-loader worker process
+rgb = reader.read(tiles.iloc[0])          # stored tiles from the .h5, others from the slide
+
+normalizer, record = loader.fit_fold_normalizer(EXPORT_DIR, 0, reference_patch_id, reader)
+rgb = loader.normalize_tile(normalizer, rgb, patch_id, "logs/macenko_failures_fold0.csv")
+```
+
+Every read checks the tile's pixel hash against the one recorded at tiling. Tiles beyond the cap need the
+slides under `<root>/raw/`; stored tiles need only the `.h5` files. Each process should create its own
+`TileReader`: HDF5 and slide handles are not shared across processes.
+
+Macenko stain normalization happens here, at training time, not in tiling: its reference has to come from
+each fold's own training patients, and the cache stays a single set of raw tiles. `fit_fold_normalizer`
+only accepts a reference tile from a TCGA training patient of that fold in the exported list; save the
+returned `record` with the model run. Normalize each tile before augmentation and tensor normalization,
+with the same fold reference for training, validation and CPTAC tiles. `normalize_tile` logs a failed
+transform and raises: a raw tile is never passed on as if it had been normalized.
+
+## Tests
+
+`tests/run_tests.py` checks the whole pipeline end to end on small synthetic slides
+(`tests/make_slides.py` writes fake Aperio `.svs` files; no study data is used):
+
+```
+python tests/run_tests.py           # in the gbm-mgmt environment, from the repo folder
+python tests/run_tests.py --keep    # keep the temporary data folder for inspection
+```
+
+It covers registering copies, tiling, the resolution limit, the mask floor, lossless storage, the cap,
+rereading tiles, the audit catching a changed pixel, the config guards, QC rules, reviews, the export
+gates and accounting, the loader, Macenko, and `run_pipeline.sh`. Set `GBM_PATCHING_DIR` to a folder with
+the team's `gbm_patching.py` to also check that both tilers read identical pixels.
+
 ## Repository layout
 
 ```
-data_prep/download.py   download with resume and verification
-data_prep/split.py      patient-level A/B split
-data_prep/tile.py       tissue tiles with TIAToolbox
+data_prep/download.py   download with resume and verification; --register for copied slides
+data_prep/split.py      patient-level A/B work split
+data_prep/common.py     shared helpers: config checks, paths, patch IDs, fold map
+data_prep/slides.py     slide reading, tissue mask, tile grid, scores (TIAToolbox)
+data_prep/tile.py       tile extraction, mask comparison, integrity audit
 data_prep/qc.py         apply the tile QC policy
+data_prep/review.py     human review records
+data_prep/export.py     modeling list with per-patient accounting
+data_prep/loader.py     read tiles and Macenko per fold, for training code
+scripts/run_pipeline.sh run the steps in order for one subset
 configs/tiling.yaml     tiling settings
 configs/qc_policy.yaml  tile QC cutoffs
-manifests/              frozen slide manifest
+manifests/              frozen slide manifest, shared patient fold map
+tests/                  end-to-end tests on synthetic slides
 logs/                   run logs (ignored by git; add submitted logs with git add -f)
 environment.yml         conda environment
 requirements.txt        pip requirements (also used by environment.yml)
@@ -291,6 +429,6 @@ requirements.txt        pip requirements (also used by environment.yml)
 ## Status
 
 - [x] Slide download and verification
-- [ ] Tissue masking and patch extraction
+- [ ] Tissue masking and patch extraction (pipeline built; mask review and full run pending)
 - [ ] UNI2-h embeddings and PixCell synthetic bags
 - [ ] Model training (ConvNeXt V2-Tiny, Swin V2-Tiny) and evaluation

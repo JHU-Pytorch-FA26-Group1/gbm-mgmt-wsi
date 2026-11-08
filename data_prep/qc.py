@@ -4,14 +4,16 @@ Examples:
     python data_prep/qc.py --root ~/Bioinformatics/WSI/data --subset B
     python data_prep/qc.py --root ~/Bioinformatics/WSI/data --subset B --policy configs/qc_policy.yaml
 
-tile.py stores every tissue tile with its scores and makes no quality decisions. This script reads
+tile.py stores every tissue tile's scores and makes no quality decisions. This script reads
 patches/<tiling version>/index_<subset>.csv and each slide's _patches.csv, applies
 configs/qc_policy.yaml, and writes under patches/<tiling version>/qc/<policy version>/:
   {source}/{patient_id}/{slide_id}_decisions.csv   one row per tissue tile; stored ones carry h5_index
   slides_<subset>.csv                              accept / review / reject counts per slide
   policy_<subset>.json                             the policy, its SHA-256 and the inputs used
 Edge tiles (touching the mask, not tissue) are never candidates. With a tiling cap, tissue tiles that
-were not stored still get a decision and can be reread from the slide. Review cases need a person.
+were not stored still get a decision and can be reread from the slide. Review cases need a person
+(review.py); only accepted tiles reach the model (export.py). A blur score of exactly 0 (a flat tile)
+is always sent to review, whatever the cutoffs.
 
 Exit codes: 0 = done, 2 = setup or policy problem.
 """
@@ -20,7 +22,6 @@ import csv
 import hashlib
 import json
 import logging
-import math
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -28,12 +29,15 @@ from pathlib import Path
 
 import yaml
 
-from download import DEFAULT_LOG_DIR, REPO_ROOT, setup_logging, write_json
+from common import (DEFAULT_POLICY, DEFAULT_TILING_CONFIG, is_level, is_name, is_num, load_settings,
+                    tiling_version)
+from download import DEFAULT_LOG_DIR, setup_logging, write_json
 
-DEFAULT_POLICY = REPO_ROOT / "configs" / "qc_policy.yaml"
-DEFAULT_TILING_CONFIG = REPO_ROOT / "configs" / "tiling.yaml"
-POLICY_KEYS = {"version", "max_glass_fraction", "blank_fraction", "dark_mean_rgb", "min_blur"}
-DECISION_FIELDS = ["patch_id", "stored", "h5_index", "grid_index", "x_target", "y_target", "decision", "reasons"]
+POLICY_KEYS = {"version", "frozen", "reviewer", "notes", "max_glass_fraction", "blank_fraction",
+               "dark_mean_rgb", "min_blur", "glass_review_above", "pale_review_below",
+               "pale_value_above", "dark_fraction_review_above", "green_fraction_review_above"}
+DECISION_FIELDS = ["patch_id", "stored", "h5_index", "grid_index", "x_target", "y_target", "decision",
+                   "reasons"]
 
 log = logging.getLogger("qc")
 
@@ -53,50 +57,74 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def load_policy(path):
-    """Read and validate the QC policy; return (policy dict, file SHA-256, file text)."""
-    text = path.read_text()
-    policy = yaml.safe_load(text)
-    if not isinstance(policy, dict):
-        raise RuntimeError(f"policy is not a YAML mapping: {path}")
-    if set(policy) != POLICY_KEYS:
-        raise RuntimeError(f"policy keys {sorted(set(policy) ^ POLICY_KEYS)} missing or unexpected")
+def load_policy(path=DEFAULT_POLICY):
+    """Read and validate the QC policy; return (policy dict, file SHA-256, file text).
 
-    def is_num(v):
-        return (isinstance(v, int) and not isinstance(v, bool)) or (isinstance(v, float) and math.isfinite(v))
+    A frozen policy must name its reviewer and say in `notes` how its cutoffs were chosen.
+    """
+    def optional(check):
+        return lambda v, s: v is None or check(v)
 
-    v = policy
+    def fraction(v):
+        return is_num(v) and 0 <= v <= 1
+
     checks = {
-        "version": isinstance(v["version"], str) and v["version"].strip() != ""
-                   and Path(v["version"]).name == v["version"] and v["version"] not in (".", ".."),
-        "max_glass_fraction": is_num(v["max_glass_fraction"]) and 0 <= v["max_glass_fraction"] <= 1,
-        "blank_fraction": is_num(v["blank_fraction"]) and 0 < v["blank_fraction"] <= 1,
-        "dark_mean_rgb": v["dark_mean_rgb"] is None or (is_num(v["dark_mean_rgb"])
-                                                        and 0 <= v["dark_mean_rgb"] <= 255),
-        "min_blur": v["min_blur"] is None or (is_num(v["min_blur"]) and v["min_blur"] >= 0),
+        "version": lambda v, s: is_name(v),
+        "frozen": lambda v, s: isinstance(v, bool),
+        "reviewer": lambda v, s: isinstance(v, str) and (v.strip() != "" or not s["frozen"]),
+        "notes": lambda v, s: isinstance(v, str) and (v.strip() != "" or not s["frozen"]),
+        "max_glass_fraction": lambda v, s: fraction(v),
+        "blank_fraction": lambda v, s: is_num(v) and 0 < v <= 1,
+        "dark_mean_rgb": optional(lambda v: is_num(v) and 0 <= v <= 255),
+        "min_blur": optional(lambda v: is_num(v) and v >= 0),
+        "glass_review_above": optional(fraction),
+        "pale_review_below": optional(lambda v: is_num(v) and 0 <= v <= 255),
+        "pale_value_above": lambda v, s: is_level(v) or (is_num(v) and 0 <= v <= 255),
+        "dark_fraction_review_above": optional(fraction),
+        "green_fraction_review_above": optional(fraction),
     }
-    bad = [key for key, ok in checks.items() if not ok]
-    if bad:
-        raise RuntimeError("bad policy values: " + ", ".join(f"{k}={policy[k]!r}" for k in bad))
-    return policy, hashlib.sha256(text.encode()).hexdigest(), text
+    return load_settings(path, POLICY_KEYS, checks, "policy")
 
 
 def decide(row, policy):
     """Return (decision, reasons) for one tile's scores. Any reject reason outranks review."""
     reject, review = [], []
-    if float(row["glass_fraction"]) > policy["max_glass_fraction"]:
+    score = {k: float(row[k]) for k in ("glass_fraction", "near_white_fraction", "near_black_fraction",
+                                        "laplacian_variance", "mean_r", "mean_g", "mean_b",
+                                        "mean_saturation", "mean_value", "dark_fraction",
+                                        "green_fraction")}
+    if score["glass_fraction"] > policy["max_glass_fraction"]:
         reject.append("glass")
-    if float(row["near_white_fraction"]) >= policy["blank_fraction"]:
+    if score["near_white_fraction"] >= policy["blank_fraction"]:
         reject.append("near_white")
-    if float(row["near_black_fraction"]) >= policy["blank_fraction"]:
+    if score["near_black_fraction"] >= policy["blank_fraction"]:
         reject.append("near_black")
-    dark = policy["dark_mean_rgb"]
-    if dark is not None and all(float(row[k]) < dark for k in ("mean_r", "mean_g", "mean_b")):
-        review.append("very_dark")
-    if policy["min_blur"] is not None and float(row["laplacian_variance"]) < policy["min_blur"]:
+    if score["laplacian_variance"] == 0:
+        review.append("flat_tile")
+    elif policy["min_blur"] is not None and score["laplacian_variance"] < policy["min_blur"]:
         review.append("low_blur")
+    dark = policy["dark_mean_rgb"]
+    if dark is not None and all(score[k] < dark for k in ("mean_r", "mean_g", "mean_b")):
+        review.append("very_dark")
+    if policy["glass_review_above"] is not None and score["glass_fraction"] > policy["glass_review_above"]:
+        review.append("glass_review")
+    if (policy["pale_review_below"] is not None and score["mean_saturation"] < policy["pale_review_below"]
+            and score["mean_value"] > policy["pale_value_above"]):
+        review.append("pale")
+    if (policy["dark_fraction_review_above"] is not None
+            and score["dark_fraction"] > policy["dark_fraction_review_above"]):
+        review.append("dark_area")
+    if (policy["green_fraction_review_above"] is not None
+            and score["green_fraction"] > policy["green_fraction_review_above"]):
+        review.append("green_ink")
     decision = "reject" if reject else "review" if review else "accept"
     return decision, ";".join(reject + review) or "pass"
+
+
+def decisions_path(root, version, policy_version, slide):
+    """Where qc.py writes one slide's decisions."""
+    return (Path(root) / "patches" / version / "qc" / policy_version / slide["source"]
+            / slide["patient_id"] / f"{slide['slide_id']}_decisions.csv")
 
 
 def main(argv=None):
@@ -107,9 +135,9 @@ def main(argv=None):
     log.info("Command: %s", " ".join(sys.argv))
     try:
         policy, policy_sha, policy_text = load_policy(args.policy.expanduser().resolve())
-        tiling_version = yaml.safe_load(args.tiling_config.expanduser().resolve().read_text())["version"]
-        tiled = args.root / "patches" / tiling_version
-        index_path = tiled / f"index_{args.subset}.csv"
+        version = tiling_version(args.tiling_config.expanduser().resolve())
+        tiled_dir = args.root / "patches" / version
+        index_path = tiled_dir / f"index_{args.subset}.csv"
         with index_path.open(newline="") as handle:
             slides = list(csv.DictReader(handle))
         if not slides:
@@ -118,11 +146,13 @@ def main(argv=None):
         log.error("%s", error)
         return 2
     log.info("Policy %s (sha256 %s): %s | tiling %s, %d slides | log %s", args.policy,
-             policy_sha[:12], json.dumps(policy, sort_keys=True), tiling_version, len(slides), log_path)
+             policy_sha[:12], json.dumps(policy, sort_keys=True), version, len(slides), log_path)
     if policy["min_blur"] is None:
-        log.warning("min_blur is null: blur is measured but not used for any decision")
+        log.warning("min_blur is null: only flat tiles (blur score 0) are sent to review for blur")
+    if not policy["frozen"]:
+        log.warning("policy is not frozen: export.py will not build a modeling list from it")
 
-    out = tiled / "qc" / policy["version"]
+    out = tiled_dir / "qc" / policy["version"]
     totals, summary = Counter(), []
     for slide in slides:
         patches_csv = args.root / slide["csv"]
@@ -130,7 +160,7 @@ def main(argv=None):
             log.error("%s changed since tiling; run tile.py --audit", patches_csv)
             return 2
         counts, reasons = Counter(), Counter()
-        path = out / slide["source"] / slide["patient_id"] / f"{slide['slide_id']}_decisions.csv"
+        path = decisions_path(args.root, version, policy["version"], slide)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")
         with patches_csv.open(newline="") as source, temporary.open("w", newline="") as target:
@@ -153,9 +183,8 @@ def main(argv=None):
                         "slide_id": slide["slide_id"], "h5": slide["h5"],
                         "decisions": str(path.relative_to(args.root)),
                         "tissue_tiles": slide["n_tissue_tiles"], "stored_tiles": slide["n_stored_tiles"],
-                        "accept": counts["accept"],
-                        "review": counts["review"], "reject": counts["reject"],
-                        "reasons": json.dumps(dict(sorted(reasons.items())))})
+                        "accept": counts["accept"], "review": counts["review"],
+                        "reject": counts["reject"], "reasons": json.dumps(dict(sorted(reasons.items())))})
 
     with (out / f"slides_{args.subset}.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(summary[0]))
@@ -163,7 +192,7 @@ def main(argv=None):
         writer.writerows(summary)
     write_json(out / f"policy_{args.subset}.json", {
         "policy": policy, "policy_sha256": policy_sha, "policy_yaml": policy_text,
-        "tiling_version": tiling_version, "index_sha256": hashlib.sha256(index_path.read_bytes()).hexdigest(),
+        "tiling_version": version, "index_sha256": hashlib.sha256(index_path.read_bytes()).hexdigest(),
         "counts": dict(totals), "applied_at_utc": datetime.now(timezone.utc).isoformat()})
     log.info("%d slides: %d accept, %d review, %d reject; written to %s", len(summary),
              totals["accept"], totals["review"], totals["reject"], out)

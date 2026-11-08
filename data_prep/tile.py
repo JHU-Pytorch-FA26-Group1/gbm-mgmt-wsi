@@ -1,22 +1,23 @@
-"""Extract every tissue tile from downloaded slides with TIAToolbox (224 px at 0.5 um/px by default).
+"""Extract tissue tiles from downloaded slides with TIAToolbox (224 px at 0.5 um/px by default).
 
 Examples:
     python data_prep/tile.py --root ~/Bioinformatics/WSI/data --subset B --dry-run
-    python data_prep/tile.py --root ~/Bioinformatics/WSI/data --subset B --slides C3N-02786-23
     python data_prep/tile.py --root ~/Bioinformatics/WSI/data --subset B --masks-only --slides C3N-02786-23
+    python data_prep/tile.py --root ~/Bioinformatics/WSI/data --subset B --slides C3N-02786-23
     python data_prep/tile.py --root ~/Bioinformatics/WSI/data --subset B --workers 8
     python data_prep/tile.py --root ~/Bioinformatics/WSI/data --subset B --audit
 
-The tile grid and tile reads are TIAToolbox's SlidingWindowPatchExtractor; this script adds the
-tissue mask, per-tile scores, lossless storage, receipts, an integrity audit and parallelism.
+The tile grid and tile reads are TIAToolbox's SlidingWindowPatchExtractor; the mask, grid, roles and
+scores live in slides.py. This script adds lossless storage, receipts, an integrity audit and
+parallelism.
 
 Per slide, writes under <root>/patches/<config version>/{source}/{patient_id}/: {slide_id}.h5 (PNG
 tiles plus coordinates and pixel hashes), {slide_id}_patches.csv (one row per grid position that
 touches the mask, with its scores), a QC image and the mask. With `max_tiles_per_slide` set, only a
-seeded sample of each slide's tissue tiles is stored; every tissue tile is still scored and recorded. A receipt goes under
-<root>/state/tiling/<config version>/. On rerun, a slide is skipped only if its receipt matches the
-current config and CODE_VERSION and its outputs have the recorded sizes. Tiles are not filtered for
-quality here: configs/qc_policy.yaml and data_prep/qc.py decide which tiles are used.
+seeded sample of each slide's tissue tiles is stored; every tissue tile is still scored and recorded.
+A receipt goes under <root>/state/tiling/<config version>/. On rerun, a slide is skipped only if its
+receipt matches the current config and CODE_VERSION and its outputs have the recorded sizes. Tiles
+are not filtered for quality here: configs/qc_policy.yaml and data_prep/qc.py decide which are used.
 
 Exit codes: 0 = every selected slide done (or audited clean), 1 = some slides failed, are not
 downloaded yet, or failed the audit, 2 = setup or config problem, 130 = interrupted with Ctrl-C.
@@ -30,53 +31,32 @@ import logging
 import math
 import multiprocessing
 import os
-import platform
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
-from importlib.metadata import PackageNotFoundError, version as package_version
 from pathlib import Path
 
 import cv2
 import h5py
 import numpy as np
-import openslide
-import tiatoolbox
 import yaml
 from PIL import Image
-from skimage.filters import threshold_multiotsu, threshold_otsu
-from tiatoolbox.tools.patchextraction import SlidingWindowPatchExtractor
-from tiatoolbox.tools.tissuemask import OtsuTissueMasker
-from tiatoolbox.wsicore.wsireader import WSIReader
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
+import slides
 import split
-from download import (DEFAULT_LOG_DIR, DEFAULT_MANIFEST, REPO_ROOT, SOURCES, load_manifest,
-                      paths_for, setup_logging, slide_progress, write_json)
+from common import (CODE_VERSION, DEFAULT_TILING_CONFIG, check_output_folder, load_tiling_config,
+                    output_paths, sha256_file, slide_key, tiled, write_rows)
+from download import (DEFAULT_LOG_DIR, DEFAULT_MANIFEST, SOURCES, load_manifest, paths_for,
+                      setup_logging, slide_progress, write_json)
 
-DEFAULT_CONFIG = REPO_ROOT / "configs" / "tiling.yaml"
-# Bump whenever a change to this file alters the outputs. A config folder holding outputs from
-# another CODE_VERSION is refused, so bump the config `version` too.
-CODE_VERSION = 7
-CONFIG_KEYS = {"version", "tile_px", "target_mpp", "max_upsample_pct", "mask_mpp", "mask_method",
-               "mask_median_px", "mask_close_px", "mask_min_saturation", "min_tissue_fraction",
-               "max_tiles_per_slide", "seed",
-               "glass_max_saturation", "glass_min_value", "near_white_value", "near_black_value",
-               "png_compress_level"}
-MASK_METHODS = ("saturation_multiotsu", "saturation_otsu", "otsu_gray")
-# --masks-only compares these: (label, method, floor). A floor of None means the config's floor.
-MASK_VARIANTS = (("two-class", "saturation_otsu", 0),
-                 ("three-class", "saturation_multiotsu", 0),
-                 ("three-class + floor", "saturation_multiotsu", None))
 # Columns shared with the team's gbm_patching.py keep its names and meanings.
 PATCH_FIELDS = ["source", "patient_id", "slide_id", "slide_relpath", "grid_index", "candidate_index",
-                "patch_id", "role", "stored", "h5_index", "x_target", "y_target", "patch_px", "target_mpp",
-                "x0", "y0", "x1", "y1", "native_mpp_x", "native_mpp_y", "mask_fraction",
-                "mean_r", "mean_g", "mean_b", "gray_median", "laplacian_variance",
-                "near_white_fraction", "near_black_fraction", "glass_fraction", "pixel_sha256"]
-ROLE_CODES = {"background": 0, "edge": 1, "tissue": 2}
+                "patch_id", "role", "stored", "h5_index", "x_target", "y_target", "patch_px",
+                "target_mpp", "x0", "y0", "x1", "y1", "native_mpp_x", "native_mpp_y", "mask_fraction",
+                *slides.SCORE_FIELDS, "pixel_sha256"]
 QC_MAX_BOXES = 300   # tiles outlined on the QC image; drawing every tile would hide the slide
 THREAD_VARIABLES = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
                     "NUMEXPR_NUM_THREADS")
@@ -118,7 +98,7 @@ def parse_args(argv=None):
                         help="data folder used by download.py")
     parser.add_argument("--subset", choices=["full", "A", "B"], required=True,
                         help="full cohort, or team subset A or B")
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG,
+    parser.add_argument("--config", type=Path, default=DEFAULT_TILING_CONFIG,
                         help="tiling settings (default: %(default)s)")
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST,
                         help="frozen slide manifest (default: %(default)s)")
@@ -138,246 +118,6 @@ def parse_args(argv=None):
     parser.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR,
                         help="folder for run .log files (default: %(default)s)")
     return parser.parse_args(argv)
-
-
-def load_config(path):
-    """Read and validate the tiling config; return (settings dict, file SHA-256, file text)."""
-    text = path.read_text()
-    cfg = yaml.safe_load(text)
-    if not isinstance(cfg, dict):
-        raise RuntimeError(f"config is not a YAML mapping: {path}")
-    if set(cfg) != CONFIG_KEYS:
-        raise RuntimeError(f"config keys {sorted(set(cfg) ^ CONFIG_KEYS)} missing or unexpected")
-
-    def is_int(v):
-        return isinstance(v, int) and not isinstance(v, bool)
-
-    def is_num(v):
-        return is_int(v) or (isinstance(v, float) and math.isfinite(v))
-
-    def is_level(v):
-        return is_int(v) and 0 <= v <= 255
-
-    v = cfg
-    checks = {
-        "version": isinstance(v["version"], str) and v["version"].strip() != ""
-                   and Path(v["version"]).name == v["version"] and v["version"] not in (".", ".."),
-        "tile_px": is_int(v["tile_px"]) and v["tile_px"] > 0,
-        "target_mpp": is_num(v["target_mpp"]) and v["target_mpp"] > 0,
-        "max_upsample_pct": is_num(v["max_upsample_pct"]) and v["max_upsample_pct"] >= 0,
-        "mask_mpp": is_num(v["mask_mpp"]) and v["mask_mpp"] > 0,
-        "mask_method": v["mask_method"] in MASK_METHODS,
-        "mask_median_px": is_int(v["mask_median_px"]) and v["mask_median_px"] >= 3
-                          and v["mask_median_px"] % 2 == 1,
-        "mask_close_px": is_int(v["mask_close_px"]) and v["mask_close_px"] >= 0,
-        "mask_min_saturation": is_level(v["mask_min_saturation"]),
-        "min_tissue_fraction": is_num(v["min_tissue_fraction"]) and 0 <= v["min_tissue_fraction"] <= 1,
-        "max_tiles_per_slide": v["max_tiles_per_slide"] is None
-                               or (is_int(v["max_tiles_per_slide"]) and v["max_tiles_per_slide"] >= 1),
-        "seed": is_int(v["seed"]) and v["seed"] >= 0,
-        "glass_max_saturation": is_level(v["glass_max_saturation"]),
-        "glass_min_value": is_level(v["glass_min_value"]),
-        "near_white_value": is_level(v["near_white_value"]),
-        "near_black_value": is_level(v["near_black_value"]),
-        "png_compress_level": is_int(v["png_compress_level"]) and 0 <= v["png_compress_level"] <= 9,
-    }
-    bad = [key for key, ok in checks.items() if not ok]
-    if bad:
-        raise RuntimeError("bad config values: " + ", ".join(f"{k}={cfg[k]!r}" for k in bad))
-    return cfg, hashlib.sha256(text.encode()).hexdigest(), text
-
-
-def library_versions():
-    """Versions of the libraries that shape the outputs, including the native OpenSlide library."""
-    versions = {"python": platform.python_version(), "tiatoolbox": tiatoolbox.__version__,
-                "openslide": openslide.__library_version__, "openslide_python": openslide.__version__,
-                "numpy": np.__version__, "opencv": cv2.__version__, "h5py": h5py.__version__}
-    for name in ("pillow", "scikit-image"):
-        try:
-            versions[name] = package_version(name)
-        except PackageNotFoundError:
-            versions[name] = "unknown"
-    return versions
-
-
-def output_paths(root, row, version):
-    """Return (tiles .h5, QC .png, mask .png, patches .csv, receipt .json) for a slide."""
-    folder = root / "patches" / version / row["source"] / row["patient_id"]
-    stem = row["slide_id"]
-    return (folder / f"{stem}.h5", folder / f"{stem}_qc.png", folder / f"{stem}_mask.png",
-            folder / f"{stem}_patches.csv",
-            root / "state" / "tiling" / version / row["source"] / f"{stem}.json")
-
-
-def tiled(root, row, version, config_sha):
-    """True if the slide was tiled with this config and CODE_VERSION and its outputs are intact.
-
-    Intact means the .h5 and .csv files have the sizes recorded in the receipt and the QC image
-    exists. The SHA-256 hashes in the receipt are only rechecked by --audit.
-    """
-    h5_path, qc_path, _, csv_path, receipt = output_paths(root, row, version)
-    try:
-        record = json.loads(receipt.read_text())
-        sizes = (h5_path.stat().st_size, csv_path.stat().st_size)
-    except (OSError, ValueError):
-        return False
-    return (record.get("config_sha256") == config_sha
-            and record.get("code_version") == CODE_VERSION
-            and (record.get("h5_bytes"), record.get("csv_bytes")) == sizes and qc_path.exists())
-
-
-def check_output_folder(root, version, config_sha):
-    """Refuse a config version folder that already holds slides from another config or code."""
-    for path in sorted((root / "state" / "tiling" / version).glob("*/*.json")):
-        record = json.loads(path.read_text())
-        if record.get("config_sha256") != config_sha or record.get("code_version") != CODE_VERSION:
-            raise RuntimeError(f"{path} is from another config or CODE_VERSION; "
-                               f"bump `version` in the config")
-
-
-def open_slide(path, cfg):
-    """Open a slide and check its native resolution; return (reader, mpp array, upsampling %).
-
-    Slides coarser than target_mpp are enlarged when read. More than `max_upsample_pct` fails the
-    slide instead of silently inventing detail.
-    """
-    wsi = WSIReader.open(path)
-    try:
-        mpp = wsi.info.mpp
-        if mpp is None or len(mpp) != 2 or not all(np.isfinite(mpp)) or min(mpp) <= 0:
-            raise ValueError(f"missing or invalid mpp: {mpp}")
-        mpp = np.asarray(mpp, dtype=float)
-        upsample = np.maximum(0.0, 100 * (mpp / cfg["target_mpp"] - 1))
-        if upsample.max() > cfg["max_upsample_pct"] + 1e-9:
-            raise ValueError(f"needs {upsample.max():.2f}% upsampling (mpp {mpp.tolist()})")
-    except Exception:
-        close_slide(wsi)
-        raise
-    return wsi, mpp, upsample
-
-
-def close_slide(wsi):
-    """Close the file handles TIAToolbox keeps open (OpenSlide or tifffile)."""
-    for name in ("openslide_wsi", "tiff"):
-        handle = getattr(wsi, name, None)
-        if handle is not None:
-            handle.close()
-
-
-def tissue_mask(thumb, cfg, method=None, floor=None):
-    """Return (0/1 uint8 tissue mask, threshold used, Otsu threshold) for an RGB thumbnail.
-
-    The saturation methods threshold the median-blurred HSV saturation channel: tissue is colored,
-    background is white or gray. A pixel is tissue if its saturation >= the threshold used, which
-    is the Otsu cut raised to at least `floor` (default: `mask_min_saturation`). Small gaps are then
-    closed (`mask_close_px`, 0 = off).
-    "saturation_multiotsu": the lower cut of a three-class Otsu (background / pale / strong), so pale
-    tissue stays tissue on heavily stained slides. On very faint slides that cut can fall inside the
-    background noise, which is what the floor is for.
-    "saturation_otsu": a two-class Otsu, for comparison. skimage counts pixels ABOVE its threshold as
-    foreground, so the cut recorded here is that threshold rounded down, plus 1.
-    A thumbnail with too few saturation levels for the method uses the floor alone; its Otsu
-    threshold is None.
-    "otsu_gray": TIAToolbox's OtsuTissueMasker (grayscale Otsu, no cleanup); both thresholds are None.
-    """
-    method = method or cfg["mask_method"]
-    floor = cfg["mask_min_saturation"] if floor is None else floor
-    if method == "otsu_gray":
-        return OtsuTissueMasker().fit_transform([thumb])[0].astype(np.uint8), None, None
-    saturation = cv2.cvtColor(np.ascontiguousarray(thumb[..., :3]), cv2.COLOR_RGB2HSV)[..., 1]
-    saturation = cv2.medianBlur(saturation, cfg["mask_median_px"])
-    levels = len(np.unique(saturation))
-    otsu = None
-    if method == "saturation_multiotsu" and levels >= 3:
-        otsu = float(threshold_multiotsu(saturation, classes=3)[0])
-    elif method == "saturation_otsu" and levels >= 2:
-        otsu = float(math.floor(threshold_otsu(saturation)) + 1)
-    threshold = float(max(otsu, floor) if otsu is not None else floor)
-    mask = (saturation >= threshold).astype(np.uint8)
-    if cfg["mask_close_px"]:
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cfg["mask_close_px"],) * 2)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    return mask, threshold, otsu
-
-
-def tile_grid(wsi, cfg):
-    """TIAToolbox's full tile grid: a SlidingWindowPatchExtractor with no mask.
-
-    `extractor.coordinate_list` holds every complete `tile_px` window at `target_mpp` as
-    [x0, y0, x1, y1] (stride = tile_px, within_bound: no padded tiles at the right/bottom
-    margins); its row number is the tile's grid index, and `extractor[i]` reads tile i.
-    """
-    return SlidingWindowPatchExtractor(
-        wsi, cfg["tile_px"], resolution=cfg["target_mpp"], units="mpp", stride=cfg["tile_px"],
-        within_bound=True)
-
-
-def mask_roles(mask, coords, wsi_shape, min_fraction):
-    """Classify grid tiles against the thumbnail mask; return (roles, masked fraction).
-
-    Uses the same coordinate scaling and rule as TIAToolbox's PatchExtractor.filter_coordinates,
-    so "tissue" here is exactly what an extractor given this mask and min_mask_ratio would keep:
-    more than `min_fraction` of the tile is masked, or all of it. "edge" tiles touch the mask
-    without being tissue; "background" tiles do not touch it.
-    """
-    scale = np.array(mask.shape[1::-1]) / np.array(wsi_shape)
-    box = coords.copy().astype(np.float32)
-    box[:, [0, 2]] *= scale[0]
-    box[:, [0, 2]] = np.clip(box[:, [0, 2]], 0, mask.shape[1])
-    box[:, [1, 3]] *= scale[1]
-    box[:, [1, 3]] = np.clip(box[:, [1, 3]], 0, mask.shape[0])
-    x0, y0, x1, y1 = box.astype(np.int32).T
-    # Masked pixels per box from a summed-area table: one lookup per tile instead of a slice.
-    summed = np.zeros((mask.shape[0] + 1, mask.shape[1] + 1), dtype=np.int64)
-    summed[1:, 1:] = (mask > 0).cumsum(axis=0).cumsum(axis=1)
-    area = np.maximum(x1 - x0, 0).astype(np.int64) * np.maximum(y1 - y0, 0)
-    positive = np.where(area > 0, summed[y1, x1] - summed[y0, x1] - summed[y1, x0] + summed[y0, x0], 0)
-    tissue = ((positive == area) | (positive > area * min_fraction)) & (positive > 0) & (area > 0)
-    roles = np.where(tissue, ROLE_CODES["tissue"],
-                     np.where(positive > 0, ROLE_CODES["edge"], ROLE_CODES["background"]))
-    fraction = np.divide(positive, area, out=np.zeros(len(area)), where=area > 0)
-    return roles.astype(np.int8), fraction
-
-
-def stored_tiles(tissue, cfg, slide_id):
-    """Which tissue tiles get their pixels stored: all of them, or a seeded random sample.
-
-    Above `max_tiles_per_slide`, a sample of that size is drawn without replacement with a per-slide
-    seed (hash of `seed` and the slide ID), so reruns and other machines pick the same tiles. Every
-    tissue tile is still read, scored and recorded; tiles not stored can be reread from the slide.
-    Returns grid indices in grid order.
-    """
-    cap = cfg["max_tiles_per_slide"]
-    if cap is None or len(tissue) <= cap:
-        return tissue
-    seed = int.from_bytes(hashlib.sha256(f"{cfg['seed']}|{slide_id}".encode()).digest()[:8], "big")
-    return np.sort(tissue[np.random.default_rng(seed).choice(len(tissue), size=cap, replace=False)])
-
-
-def tile_scores(img, cfg):
-    """Quality scores for an RGB tile. Names and definitions match gbm_patching.py, plus glass.
-
-    laplacian_variance: variance of the Laplacian of the grayscale tile; low for blurred, empty or
-    featureless tiles. glass_fraction: share of pixels with HSV saturation below
-    `glass_max_saturation` and brightness above `glass_min_value` (bright, uncolored background).
-    near_white / near_black: share of pixels with every channel >= `near_white_value` / <=
-    `near_black_value`.
-    """
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
-    mean = img.mean(axis=(0, 1))
-    return {"mean_r": float(mean[0]), "mean_g": float(mean[1]), "mean_b": float(mean[2]),
-            "gray_median": float(np.median(gray)),
-            "laplacian_variance": float(cv2.Laplacian(gray, cv2.CV_64F).var()),
-            "near_white_fraction": float(np.all(img >= cfg["near_white_value"], axis=2).mean()),
-            "near_black_fraction": float(np.all(img <= cfg["near_black_value"], axis=2).mean()),
-            "glass_fraction": float(((hsv[..., 1] < cfg["glass_max_saturation"])
-                                     & (hsv[..., 2] > cfg["glass_min_value"])).mean())}
-
-
-def slide_key(row):
-    """Slide part of the patch ID, the same as gbm_patching.py: source + 16 hex of SHA-256(slide_id)."""
-    return row["source"] + "_" + hashlib.sha256(row["slide_id"].encode()).hexdigest()[:16]
 
 
 def write_qc(path, thumb, mask, coords, tile_px, scale_x, scale_y):
@@ -403,12 +143,6 @@ def save_png(path, image):
     os.replace(temporary, path)
 
 
-def sha256_file(path):
-    """SHA-256 of a file, streamed in chunks rather than read into memory at once."""
-    with path.open("rb") as handle:
-        return hashlib.file_digest(handle, "sha256").hexdigest()
-
-
 def tile_slide(root, row, cfg, config_sha, config_text):
     """Tile one slide (runs in a worker process). Returns a stats dict for its receipt.
 
@@ -425,18 +159,18 @@ def tile_slide(root, row, cfg, config_sha, config_text):
     h5_path.parent.mkdir(parents=True, exist_ok=True)
     tile_px, target_mpp = cfg["tile_px"], cfg["target_mpp"]
 
-    wsi, mpp, upsample = open_slide(slide_path, cfg)
+    wsi, mpp, upsample = slides.open_slide(slide_path, cfg)
     try:
         thumb = wsi.slide_thumbnail(cfg["mask_mpp"], "mpp")
-        mask, threshold, otsu = tissue_mask(thumb, cfg)
-        extractor = tile_grid(wsi, cfg)
+        mask, threshold, otsu = slides.tissue_mask(thumb, cfg)
+        extractor = slides.tile_grid(wsi, cfg)
         grid = extractor.coordinate_list.astype(np.int64)            # [x0, y0, x1, y1] at target_mpp
         width, height = wsi.slide_dimensions(target_mpp, "mpp")
-        roles, fractions = mask_roles(mask, grid, (width, height), cfg["min_tissue_fraction"])
-        tissue = np.flatnonzero(roles == ROLE_CODES["tissue"])       # grid indices, in grid order
+        roles, fractions = slides.mask_roles(mask, grid, (width, height), cfg["min_tissue_fraction"])
+        tissue = np.flatnonzero(roles == slides.ROLE_CODES["tissue"])   # grid indices, in grid order
         candidate = np.full(len(grid), -1, dtype=np.int64)
         candidate[tissue] = np.arange(len(tissue))
-        stored = stored_tiles(tissue, cfg, row["slide_id"])         # grid indices, in grid order
+        stored = slides.stored_tiles(tissue, cfg, row["slide_id"])    # grid indices, in grid order
         h5_index = np.full(len(grid), -1, dtype=np.int64)
         h5_index[stored] = np.arange(len(stored))
         key = slide_key(row)
@@ -449,7 +183,7 @@ def tile_slide(root, row, cfg, config_sha, config_text):
             tiles = h5.create_dataset("tiles", shape=(len(stored),), dtype=h5py.vlen_dtype(np.uint8))
             writer = csv.DictWriter(handle, fieldnames=PATCH_FIELDS)
             writer.writeheader()
-            for grid_index in np.flatnonzero(roles != ROLE_CODES["background"]):
+            for grid_index in np.flatnonzero(roles != slides.ROLE_CODES["background"]):
                 grid_index = int(grid_index)
                 x, y = (int(v) for v in grid[grid_index, :2])
                 img = np.ascontiguousarray(extractor[grid_index][..., :3])
@@ -477,7 +211,7 @@ def tile_slide(root, row, cfg, config_sha, config_text):
                     "patch_px": tile_px, "target_mpp": target_mpp,
                     "x0": bounds[0], "y0": bounds[1], "x1": bounds[2], "y1": bounds[3],
                     "native_mpp_x": float(mpp[0]), "native_mpp_y": float(mpp[1]),
-                    "mask_fraction": float(fractions[grid_index]), **tile_scores(img, cfg),
+                    "mask_fraction": float(fractions[grid_index]), **slides.tile_scores(img, cfg),
                     "pixel_sha256": pixel_sha})
 
             h5.create_dataset("coords", data=stored_coords.reshape(-1, 2))
@@ -498,7 +232,8 @@ def tile_slide(root, row, cfg, config_sha, config_text):
                      "coords_space": "top-left at target_mpp (TIAToolbox coord_space='resolution')",
                      "coords_level0_space": "top-left of the level-0 region read for each tile",
                      "grid": "tiatoolbox SlidingWindowPatchExtractor, stride = tile_px, within_bound",
-                     "grid_role_codes": json.dumps(ROLE_CODES),
+                     "grid_role_codes": json.dumps(slides.ROLE_CODES),
+                     "score_fields": json.dumps(slides.SCORE_FIELDS),
                      "interpolation": "optimize (TIAToolbox default: area down, cubic up)",
                      "mask_method": cfg["mask_method"],
                      "mask_threshold": -1.0 if threshold is None else threshold,
@@ -508,12 +243,12 @@ def tile_slide(root, row, cfg, config_sha, config_text):
                      "level_dimensions": json.dumps([list(map(int, d)) for d in wsi.info.level_dimensions]),
                      "level_downsamples": json.dumps([float(d) for d in wsi.info.level_downsamples]),
                      "n_grid": len(grid), "n_tissue_tiles": len(tissue), "n_stored_tiles": len(stored),
-                     "n_edge_tiles": int((roles == ROLE_CODES["edge"]).sum()),
+                     "n_edge_tiles": int((roles == slides.ROLE_CODES["edge"]).sum()),
                      "max_tiles_per_slide": -1 if cfg["max_tiles_per_slide"] is None
                                             else cfg["max_tiles_per_slide"],
                      "tiling_version": cfg["version"], "code_version": CODE_VERSION,
                      "config_sha256": config_sha, "config_yaml": config_text,
-                     "library_versions": json.dumps(library_versions())}
+                     "library_versions": slides.version_record()}
             h5.attrs.update(attrs)
         os.replace(h5_tmp, h5_path)
         os.replace(csv_tmp, csv_path)
@@ -521,7 +256,7 @@ def tile_slide(root, row, cfg, config_sha, config_text):
         write_qc(qc_path, thumb, mask, stored_coords, tile_px, mask.shape[1] / width,
                  mask.shape[0] / height)
     finally:
-        close_slide(wsi)
+        slides.close_slide(wsi)
 
     return {"slide_id": row["slide_id"], "source": row["source"], "patient_id": row["patient_id"],
             "file_name": row["file_name"], "h5": str(h5_path.relative_to(root)),
@@ -569,22 +304,24 @@ def audit_slide(root, row, version):
                 errors.append(f"tile {i}: {error}")
             checked += 1
     return {"source": row["source"], "patient_id": row["patient_id"], "slide_id": row["slide_id"],
-            "tiles_checked": checked, "n_errors": len(errors), "errors": errors[:10]}
+            "tiled_at_utc": record["tiled_at_utc"], "tiles_checked": checked, "n_errors": len(errors),
+            "errors": errors[:10]}
 
 
 def review_masks(root, row, cfg):
-    """Save a 2 x 2 panel comparing MASK_VARIANTS on one slide's thumbnail (runs in a worker).
+    """Save a 2 x 2 panel comparing slides.MASK_VARIANTS on one slide's thumbnail (runs in a worker).
 
     All variants share the thumbnail, median blur and closing; only the Otsu classes and the floor
     differ. Returns one result row per variant (cut, masked fraction, tissue tiles).
     """
-    wsi, _, _ = open_slide(paths_for(root, row)[0], cfg)
+    wsi, _, _ = slides.open_slide(paths_for(root, row)[0], cfg)
     try:
         thumb = np.ascontiguousarray(wsi.slide_thumbnail(cfg["mask_mpp"], "mpp")[..., :3])
-        grid = tile_grid(wsi, cfg).coordinate_list.astype(np.int64)
+        grid = slides.tile_grid(wsi, cfg).coordinate_list.astype(np.int64)
         shape = wsi.slide_dimensions(cfg["target_mpp"], "mpp")
     finally:
-        close_slide(wsi)
+        slides.close_slide(wsi)
+
     def labeled(image, title, detail=""):
         """Enlarge a narrow thumbnail so its label fits, and put a two-line label strip above it."""
         scale = max(1, math.ceil(600 / image.shape[1]))
@@ -595,22 +332,24 @@ def review_masks(root, row, cfg):
                         1, cv2.LINE_AA)
         return np.vstack([strip, image])
 
-    panels, results = [labeled(thumb, row["slide_id"][:40], "thumbnail")], []
-    for label, method, floor in MASK_VARIANTS:
-        mask, threshold, otsu = tissue_mask(thumb, cfg, method, floor)
-        roles, _ = mask_roles(mask, grid, shape, cfg["min_tissue_fraction"])
-        n_tissue = int((roles == ROLE_CODES["tissue"]).sum())
+    panels, results = [labeled(thumb, row["file_name"][:40], "thumbnail")], []
+    for label, method, floor in slides.MASK_VARIANTS:
+        mask, threshold, otsu = slides.tissue_mask(thumb, cfg, method, floor)
+        roles, _ = slides.mask_roles(mask, grid, shape, cfg["min_tissue_fraction"])
+        n_tissue = int((roles == slides.ROLE_CODES["tissue"]).sum())
         image = thumb.copy()
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         cv2.drawContours(image, contours, -1, (0, 200, 0), 1)
         panels.append(labeled(image, label,
                               f"cut {threshold:g}, {mask.mean():.1%} masked, {n_tissue} tissue tiles"))
         results.append({"source": row["source"], "patient_id": row["patient_id"],
-                        "slide_id": row["slide_id"], "variant": label, "method": method,
+                        "slide_id": row["slide_id"], "file_name": row["file_name"], "variant": label,
+                        "method": method,
                         "floor": cfg["mask_min_saturation"] if floor is None else floor,
                         "otsu_threshold": otsu, "threshold_used": threshold,
                         "mask_fraction": float(mask.mean()), "n_tissue_tiles": n_tissue})
-    path = root / "patches" / cfg["version"] / "mask_review" / row["source"] / f"{row['slide_id']}.png"
+    stem = Path(row["file_name"]).stem
+    path = root / "patches" / cfg["version"] / "mask_review" / row["source"] / f"{stem}.png"
     path.parent.mkdir(parents=True, exist_ok=True)
     save_png(path, np.vstack([np.hstack(panels[:2]), np.hstack(panels[2:])]))
     return results
@@ -648,17 +387,6 @@ def run_jobs(workers, jobs, handle, desc):
         finally:
             bar.close()
     return False
-
-
-def write_rows(path, rows):
-    """Write dict rows to a CSV atomically."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    with temporary.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
-    os.replace(temporary, path)
 
 
 def summarize(root, files, version, config_sha, title):
@@ -719,7 +447,7 @@ def run_masks(args, files, cfg):
     """Save mask comparison panels and a CSV for the selected downloaded slides; return exit code."""
     ready = [r for r in files if slide_progress(args.root, r)[0]]
     log.info("Mask comparison for %d downloaded slides: %s", len(ready),
-             ", ".join(label for label, _, _ in MASK_VARIANTS))
+             ", ".join(label for label, _, _ in slides.MASK_VARIANTS))
     rows, failed = [], []
 
     def handle(row, result, error):
@@ -759,12 +487,12 @@ def main(argv=None):
         os.environ.setdefault(name, "1")
 
     try:
-        cfg, config_sha, config_text = load_config(args.config.expanduser().resolve())
+        cfg, config_sha, config_text = load_tiling_config(args.config.expanduser().resolve())
         version = cfg["version"]
         log.info("Config %s (sha256 %s): %s", args.config, config_sha[:12],
                  json.dumps(cfg, sort_keys=True))
-        log.info("%s | tile.py code version %d | workers %d (allocated CPUs %d) | log %s",
-                 json.dumps(library_versions()), CODE_VERSION, args.workers, allocated_cpus(), log_path)
+        log.info("%s | code version %d | workers %d (allocated CPUs %d) | log %s",
+                 slides.version_record(), CODE_VERSION, args.workers, allocated_cpus(), log_path)
         _, manifest = load_manifest(args.manifest.expanduser().resolve())
         all_files = manifest["files"]
         files = split.select_files(all_files, args.subset, split.build_patient_split(all_files))
@@ -807,8 +535,7 @@ def main(argv=None):
         log.log(logging.INFO if stats["n_tissue_tiles"] else logging.WARNING,
                 "%s %s: %d of %d tissue tiles stored, %d grid positions (%d edge), %.0f MB, %.0f s%s",
                 row["patient_id"], row["file_name"], stats["n_stored_tiles"], stats["n_tissue_tiles"],
-                stats["n_grid"],
-                stats["n_edge_tiles"], stats["h5_bytes"] / 1e6, stats["seconds"],
+                stats["n_grid"], stats["n_edge_tiles"], stats["h5_bytes"] / 1e6, stats["seconds"],
                 ", mask floor applied" if stats["mask_floor_applied"] else "")
 
     started = time.monotonic()

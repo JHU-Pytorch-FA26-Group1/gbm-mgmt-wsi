@@ -14,12 +14,18 @@ mask_median_px: 5          # median blur of the saturation channel, in thumbnail
 mask_close_px: 5           # morphological closing to fill small gaps, in thumbnail px (0 = off)
 mask_min_saturation: 8     # the mask threshold is never below this (0 = no floor)
 min_tissue_fraction: 0.5   # a tile is tissue if MORE than this fraction is masked (or all of it)
-max_tiles_per_slide: null  # store pixels for at most this many tissue tiles per slide (null = all);
-                           # every tissue tile is still scored and recorded, and can be reread
+max_tiles_per_slide: 5508  # store pixels for at most this many tissue tiles per slide (null = all);
+                           # every tissue tile is still scored and recorded, and can be reread.
+                           # 5508 = median tissue tiles per slide in subset B (~100 GB at PNG level 6)
 seed: 0                    # per-slide sample seed = hash(seed, slide_id), independent of run order
-# Score definitions, measured on every tile that touches the mask:
-glass_max_saturation: 8    # glass pixel: HSV saturation below this ...
+# Score definitions, measured on every tile that touches the mask (HSV in OpenCV units: hue 0-179):
+glass_max_saturation: 8    # glass pixel: saturation below this ...
 glass_min_value: 200       # ... and brightness above this
 near_white_value: 250      # near-white pixel: all RGB channels >= this
 near_black_value: 5        # near-black pixel: all RGB channels <= this
-png_compress_level: 1      # tiles are stored as lossless PNG; 0-9 trades speed for size only
+dark_value: 60             # dark pixel: brightness below this (folds, debris, ink)
+green_hue_min: 35          # green pixel: hue between these ...
+green_hue_max: 85
+green_min_saturation: 60   # ... and saturation above this (green marker ink)
+png_compress_level: 6      # tiles are stored as lossless PNG; 0-9 trades speed for size only.
+                           # Level 1 compresses poorly on Apple Silicon (~45% larger files)
