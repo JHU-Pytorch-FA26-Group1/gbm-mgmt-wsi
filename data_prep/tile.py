@@ -114,7 +114,14 @@ def parse_args(argv=None):
     mode.add_argument("--masks-only", action="store_true",
                       help="save two-class / three-class / floor mask comparisons; tile nothing")
     mode.add_argument("--audit", action="store_true",
-                      help="recheck tiled slides: file hashes and every tile's pixel hash")
+                      help="recheck tiled slides: file hashes, every stored tile's pixel hash, and a "
+                           "sample of unstored tiles reread from the slide")
+    parser.add_argument("--reread", type=int, default=5,
+                        help="with --audit: unstored tiles per slide to reread from the slide and "
+                             "check against their recorded hash (0 = none; default: %(default)s)")
+    parser.add_argument("--check-sources", action="store_true",
+                        help="with --audit: also rehash each slide file against its download receipt "
+                             "(reads every slide in full)")
     parser.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR,
                         help="folder for run .log files (default: %(default)s)")
     return parser.parse_args(argv)
@@ -258,11 +265,15 @@ def tile_slide(root, row, cfg, config_sha, config_text):
     finally:
         slides.close_slide(wsi)
 
+    download_receipt = paths_for(root, row)[3]
+    source_sha = (json.loads(download_receipt.read_text()).get("sha256", "")
+                  if download_receipt.exists() else "")
     return {"slide_id": row["slide_id"], "source": row["source"], "patient_id": row["patient_id"],
             "file_name": row["file_name"], "h5": str(h5_path.relative_to(root)),
             "h5_sha256": sha256_file(h5_path), "h5_bytes": h5_path.stat().st_size,
             "csv": str(csv_path.relative_to(root)), "csv_sha256": sha256_file(csv_path),
-            "csv_bytes": csv_path.stat().st_size,
+            "csv_bytes": csv_path.stat().st_size, "mask_sha256": sha256_file(mask_path),
+            "qc_png_sha256": sha256_file(qc_path), "source_sha256": source_sha,
             "n_grid": len(grid), "n_tissue_tiles": len(tissue), "n_stored_tiles": len(stored),
             "n_edge_tiles": attrs["n_edge_tiles"],
             "source_mpp": float(mpp[0]), "upsample_pct": attrs["upsample_pct"],
@@ -273,20 +284,32 @@ def tile_slide(root, row, cfg, config_sha, config_text):
             "tiled_at_utc": datetime.now(timezone.utc).isoformat()}
 
 
-def audit_slide(root, row, version):
+def audit_slide(root, row, version, cfg, reread, check_source=False):
     """Recheck one tiled slide against its receipt (runs in a worker process).
 
     Recomputes the .h5 and .csv SHA-256, decodes every stored PNG and compares the hash of its
-    pixels with the hash recorded when the tile was read. Returns a result dict; never raises for
-    a mismatch, only reports it.
+    pixels with the hash recorded when the tile was read. Then rereads `reread` tiles that were not
+    stored (edge tiles, tissue tiles beyond the cap; a seeded sample per slide) from the slide and
+    checks their recorded hashes, since those tiles reach the model only by rereading. The mask and
+    QC image are checked against their receipt hashes (receipts written before these were recorded
+    skip that check), and with `check_source` the slide file is rehashed against the hash recorded
+    when it was downloaded. Returns a result dict; never raises for a mismatch, only reports it.
     """
-    h5_path, _, _, csv_path, receipt = output_paths(root, row, version)
+    h5_path, qc_path, mask_path, csv_path, receipt = output_paths(root, row, version)
     record = json.loads(receipt.read_text())
     errors = []
-    if sha256_file(h5_path) != record["h5_sha256"]:
-        errors.append("h5 sha256 differs from receipt")
-    if sha256_file(csv_path) != record["csv_sha256"]:
-        errors.append("csv sha256 differs from receipt")
+    for name, path, key in (("h5", h5_path, "h5_sha256"), ("csv", csv_path, "csv_sha256"),
+                            ("mask", mask_path, "mask_sha256"), ("QC image", qc_path, "qc_png_sha256")):
+        if key in record and (not path.exists() or sha256_file(path) != record[key]):
+            errors.append(f"{name} sha256 differs from receipt")
+    if check_source:
+        slide_path, _, _, download_receipt = paths_for(root, row)
+        expected = record.get("source_sha256") or (
+            json.loads(download_receipt.read_text()).get("sha256", "") if download_receipt.exists() else "")
+        if not expected:
+            errors.append("no recorded slide sha256 to check against")
+        elif not slide_path.exists() or sha256_file(slide_path) != expected:
+            errors.append("slide file sha256 differs from its download receipt")
     checked = 0
     with h5py.File(h5_path, "r") as h5:
         tiles, hashes = h5["tiles"], h5["pixel_sha256"]
@@ -303,9 +326,23 @@ def audit_slide(root, row, version):
             except Exception as error:
                 errors.append(f"tile {i}: {error}")
             checked += 1
+    with csv_path.open(newline="") as handle:
+        unstored = [r for r in csv.DictReader(handle) if r["stored"] == "False"]
+    seed = int(hashlib.sha256(f"audit|{row['slide_id']}".encode()).hexdigest()[:16], 16)
+    sample = np.random.default_rng(seed).permutation(len(unstored))[:max(0, reread)]
+    if len(sample):
+        wsi = slides.open_slide(paths_for(root, row)[0], cfg)[0]
+        try:
+            for i in sorted(sample):
+                tile = unstored[i]
+                img = slides.read_tile(wsi, tile["x_target"], tile["y_target"], cfg)
+                if hashlib.sha256(img.tobytes()).hexdigest() != tile["pixel_sha256"]:
+                    errors.append(f"reread {tile['patch_id']}: pixel hash differs")
+        finally:
+            slides.close_slide(wsi)
     return {"source": row["source"], "patient_id": row["patient_id"], "slide_id": row["slide_id"],
-            "tiled_at_utc": record["tiled_at_utc"], "tiles_checked": checked, "n_errors": len(errors),
-            "errors": errors[:10]}
+            "tiled_at_utc": record["tiled_at_utc"], "tiles_checked": checked, "tiles_reread": len(sample),
+            "source_checked": bool(check_source), "n_errors": len(errors), "errors": errors[:10]}
 
 
 def review_masks(root, row, cfg):
@@ -409,7 +446,7 @@ def summarize(root, files, version, config_sha, title):
     return receipts
 
 
-def run_audit(args, files, version, config_sha):
+def run_audit(args, files, version, config_sha, cfg):
     """Audit every selected tiled slide and save the result next to the receipts; return exit code."""
     done = [r for r in files if tiled(args.root, r, version, config_sha)]
     log.info("Auditing %d tiled slides (%d selected slides are not tiled with this config)",
@@ -419,25 +456,29 @@ def run_audit(args, files, version, config_sha):
     def handle(row, result, error):
         if error is not None:
             result = {"source": row["source"], "patient_id": row["patient_id"],
-                      "slide_id": row["slide_id"], "tiles_checked": 0, "n_errors": 1,
+                      "slide_id": row["slide_id"], "tiles_checked": 0, "tiles_reread": 0, "n_errors": 1,
                       "errors": [f"audit failed: {error}"]}
         results.append(result)
         if result["n_errors"]:
             log.error("%s %s: %s", row["patient_id"], row["slide_id"], "; ".join(result["errors"]))
 
-    interrupted = run_jobs(args.workers, [(r, audit_slide, (args.root, r, version)) for r in done],
+    interrupted = run_jobs(args.workers, [(r, audit_slide, (args.root, r, version, cfg, args.reread,
+                                                            args.check_sources)) for r in done],
                            handle, f"audit {args.subset}")
     stamp = datetime.now(timezone.utc)
     report = {"tiling_version": version, "config_sha256": config_sha, "code_version": CODE_VERSION,
               "subset": args.subset, "audited_at_utc": stamp.isoformat(), "complete": not interrupted,
               "slides_selected": len(files), "slides_tiled": len(done), "slides_audited": len(results),
               "tiles_checked": sum(r["tiles_checked"] for r in results),
+              "tiles_reread": sum(r["tiles_reread"] for r in results),
+              "sources_checked": args.check_sources,
               "slides_with_errors": sum(bool(r["n_errors"]) for r in results),
               "slides": sorted(results, key=lambda r: (r["source"], r["patient_id"], r["slide_id"]))}
     path = args.root / "state" / "tiling" / version / f"audit_{args.subset}_{stamp:%Y%m%d_%H%M%S}.json"
     write_json(path, report)
-    log.info("Audit: %d slides, %d tiles checked, %d slides with errors; saved %s",
-             len(results), report["tiles_checked"], report["slides_with_errors"], path)
+    log.info("Audit: %d slides, %d stored tiles checked, %d unstored tiles reread, %d slides with "
+             "errors; saved %s", len(results), report["tiles_checked"], report["tiles_reread"],
+             report["slides_with_errors"], path)
     if interrupted:
         return 130
     return 1 if report["slides_with_errors"] or len(done) < len(files) else 0
@@ -482,6 +523,9 @@ def main(argv=None):
     if args.workers < 1:
         log.error("--workers must be >= 1: %d", args.workers)
         return 2
+    if args.reread < 0:
+        log.error("--reread must be >= 0: %d", args.reread)
+        return 2
     # Spawned workers inherit these: one numerical thread each, so N workers use about N CPUs.
     for name in THREAD_VARIABLES:
         os.environ.setdefault(name, "1")
@@ -499,10 +543,12 @@ def main(argv=None):
         subset_files = files
         files = [r for r in files if r["source"] in args.sources]
         if args.slides:
-            files = [r for r in files if any(r["slide_id"] == s or r["file_name"].startswith(s)
-                                             for s in args.slides)]
-            if not files:
-                raise RuntimeError(f"no selected slides match {args.slides}")
+            def matches(r, s):
+                return r["slide_id"] == s or r["file_name"].startswith(s)
+            unmatched = [s for s in args.slides if not any(matches(r, s) for r in files)]
+            if unmatched:
+                raise RuntimeError(f"--slides matches no slide in subset {args.subset}: {unmatched}")
+            files = [r for r in files if any(matches(r, s) for s in args.slides)]
         if mode == "masks":
             return run_masks(args, files, cfg)
         check_output_folder(args.root, version, config_sha)
@@ -510,7 +556,7 @@ def main(argv=None):
         log.error("%s", error)
         return 2
     if mode == "audit":
-        return run_audit(args, files, version, config_sha)
+        return run_audit(args, files, version, config_sha, cfg)
 
     summarize(args.root, files, version, config_sha, f"Start of run (subset {args.subset})")
     not_downloaded = [r for r in files if not slide_progress(args.root, r)[0]]

@@ -39,7 +39,9 @@ def main():
     import download
     import export
     import loader
+    import combine
     import make_slides
+    import package
     import qc
     import review
     import slides
@@ -67,15 +69,35 @@ def main():
     cptac = [r for r in files if r["source"] == "CPTAC"]
     picks = {"mixed": tcga[0], "faint": tcga[1], "corrupt": tcga[2], "coarse_ok": cptac[0],
              "coarse_bad": cptac[1]}
-    for name, row in picks.items():
+    def place(name, row):
         dest = root / "raw" / row["source"] / row["patient_id"] / row["file_name"]
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(made["mixed" if name == "corrupt" else name], dest)
+        shutil.copyfile(made["mixed" if name in ("corrupt", "single_b") else name], dest)
         row["size_bytes"] = dest.stat().st_size
         if row["source"] == "TCGA":
             row["md5"] = hashlib.md5(dest.read_bytes()).hexdigest()
         if name == "corrupt":
             row["md5"] = "0" * 32            # a publisher checksum the copy does not match
+        return dest
+
+    for name, row in picks.items():
+        place(name, row)
+    # A single-slide TCGA patient in subset B. The split balances slide sizes, so the copy is padded
+    # to the real slide's size (trailing bytes after a TIFF are ignored) to keep the split unchanged.
+    import split
+    in_b = {r["slide_id"] for r in split.select_files(files, "B", split.build_patient_split(files))}
+    per_patient = {}
+    for r in tcga:
+        per_patient.setdefault(r["patient_id"], []).append(r)
+    single_b = min((r for r in tcga if r["slide_id"] in in_b and len(per_patient[r["patient_id"]]) == 1),
+                   key=lambda r: r["size_bytes"])
+    real_size = single_b["size_bytes"]
+    dest = place("single_b", single_b)
+    with dest.open("ab") as handle:
+        handle.truncate(max(real_size, dest.stat().st_size))
+    single_b["size_bytes"] = dest.stat().st_size
+    single_b["md5"] = hashlib.md5(dest.read_bytes()).hexdigest()
+    picks["single_b"] = single_b
     test_manifest = work / "test_manifest.json"
     test_manifest.write_bytes(json.dumps(manifest).encode())
     download.MANIFEST_SHA256 = hashlib.sha256(test_manifest.read_bytes()).hexdigest()
@@ -180,8 +202,15 @@ def main():
     before = h5_path.stat().st_mtime_ns
     code = tile.main(common_args + ["--slides"] + ids + ["--workers", "2"])
     check("rerun: finished slides are not redone", code == 0 and h5_path.stat().st_mtime_ns == before, code)
-    code = tile.main(common_args + ["--slides"] + ids + ["--audit", "--workers", "2"])
-    check("audit: clean run over every stored tile", code == 0, code)
+    code = tile.main(common_args + ["--slides"] + ids + ["--audit", "--check-sources", "--workers", "2"])
+    check("audit: clean run over every stored tile, slide files rehashed", code == 0, code)
+    audit_report = json.loads(sorted((root / "state" / "tiling" / version).glob("audit_full_*.json"))[-1].read_text())
+    check("audit: unstored tiles reread from the slide and hash-checked",
+          audit_report["tiles_reread"] == 5 * len(ids) and audit_report["slides_with_errors"] == 0
+          and audit_report["sources_checked"], audit_report["tiles_reread"])
+    receipt = json.loads(common.output_paths(root, row, version)[4].read_text())
+    check("receipt: mask, QC image and source slide hashes recorded",
+          all(len(receipt[k]) == 64 for k in ("mask_sha256", "qc_png_sha256", "source_sha256")))
 
     # ------------------------------------------------------------------ 3. guards and masks
     edited = config("tiling_edited", mask_close_px=3)
@@ -189,6 +218,8 @@ def main():
           tile.main(common_args + ["--config", str(edited), "--dry-run"]) == 2)
     check("config: out-of-range value refused",
           tile.main(common_args + ["--config", str(config("bad", png_compress_level=12)), "--dry-run"]) == 2)
+    check("slides: a name that matches no slide stops the run",
+          tile.main(common_args + ["--slides", ids[0], "not-a-slide", "--dry-run"]) == 2)
     check("config: green hue range checked",
           tile.main(common_args + ["--config", str(config("bad2", green_hue_max=20)), "--dry-run"]) == 2)
     code = tile.main(common_args + ["--slides"] + ids[:2] + ["--masks-only", "--workers", "2"])
@@ -223,10 +254,18 @@ def main():
     base.update(mean_r="200", mean_g="150", mean_b="200", mean_saturation="80", mean_value="200",
                 laplacian_variance="300")
     default_policy = qc.load_policy()[0]
-    check("qc: a flat tile (blur 0) goes to review even with min_blur unset",
-          qc.decide({**base, "laplacian_variance": "0"}, default_policy) == ("review", "flat_tile"))
+    unset = {**default_policy, "blur_reject_below": None, "blur_review_below": None}
+    check("qc: a flat tile (blur 0) goes to review even with the blur cutoffs unset",
+          qc.decide({**base, "laplacian_variance": "0"}, unset) == ("review", "flat_tile"))
     check("qc: normal tile accepted", qc.decide(base, default_policy) == ("accept", "pass"))
-    strict = {**default_policy, "min_blur": 400, "green_fraction_review_above": 0.01, "pale_review_below": 100}
+    check("qc: blur below the reject cutoff rejected, below the review cutoff reviewed",
+          qc.decide({**base, "laplacian_variance": "30"}, default_policy) == ("reject", "blur")
+          and qc.decide({**base, "laplacian_variance": "70"}, default_policy) == ("review", "low_blur"))
+    check("qc: an edge tile never passes automatically",
+          qc.decide({**base, "role": "edge"}, default_policy) == ("review", "edge")
+          and qc.decide({**base, "role": "edge", "glass_fraction": "0.95"}, default_policy)[0] == "reject")
+    strict = {**default_policy, "blur_review_below": 400, "green_fraction_review_above": 0.01,
+              "pale_review_below": 100}
     check("qc: optional rules route to review",
           qc.decide({**base, "green_fraction": "0.5"}, strict)[1] == "low_blur;pale;green_ink")
     check("qc: frozen policy without reviewer refused",
@@ -234,12 +273,33 @@ def main():
                    "--policy", str(policy("p_bad", frozen="true"))]) == 2)
     check("qc: negative blur cutoff refused",
           qc.main(["--root", str(root), "--subset", "full", "--log-dir", str(logs),
-                   "--policy", str(policy("p_bad2", min_blur=-5))]) == 2)
+                   "--policy", str(policy("p_bad2", blur_reject_below=-5))]) == 2)
+    check("qc: review cutoff below the reject cutoff refused",
+          qc.main(["--root", str(root), "--subset", "full", "--log-dir", str(logs),
+                   "--policy", str(policy("p_bad3", blur_review_below=40))]) == 2)
+    check("qc: frozen policy without calibration patients refused",
+          qc.main(["--root", str(root), "--subset", "full", "--log-dir", str(logs),
+                   "--policy", str(policy("p_bad4", frozen="true", reviewer='"tests"', notes='"x"'))]) == 2)
+    check("qc: frozen policy with a blur cutoff unset refused",
+          qc.main(["--root", str(root), "--subset", "full", "--log-dir", str(logs),
+                   "--policy", str(policy("p_bad5", frozen="true", reviewer='"tests"', notes='"x"',
+                                          calibration_patients=f'["{row["patient_id"]}"]',
+                                          blur_review_below="null"))]) == 2)
+    edge_counts = read_csv(root / "patches" / version / "qc" / "qc-v1" / "slides_full.csv")
+    check("qc: edge tiles decided (review or reject), counted apart from tissue",
+          all(int(s["edge_tiles"]) == int(s["edge_review"]) + int(s["edge_reject"]) for s in edge_counts)
+          and sum(int(s["edge_tiles"]) for s in edge_counts) > 0)
 
     # ------------------------------------------------------------------ 6. export gates and reviews
     check("export: refuses an unfrozen policy", export.main(common_args[:4] + ["--manifest", str(test_manifest),
                                                                                "--log-dir", str(logs)]) == 2)
-    frozen = policy("p_frozen", version="qc-test", frozen="true", reviewer='"tests"', notes='"synthetic slides"')
+    calibration = f'["{row["patient_id"]}"]'
+    check("export: calibration patients must be TCGA patients in the fold map", export.main(
+        ["--root", str(root), "--subset", "full", "--manifest", str(test_manifest), "--log-dir", str(logs),
+         "--policy", str(policy("p_cptac", frozen="true", reviewer='"tests"', notes='"x"',
+                                calibration_patients=f'["{picks["coarse_ok"]["patient_id"]}"]'))]) == 2)
+    frozen = policy("p_frozen", version="qc-test", frozen="true", reviewer='"tests"', notes='"synthetic slides"',
+                    calibration_patients=calibration)
     qc_args = ["--root", str(root), "--subset", "full", "--log-dir", str(logs), "--policy", str(frozen)]
     export_args = ["--root", str(root), "--subset", "full", "--manifest", str(test_manifest),
                    "--log-dir", str(logs), "--policy", str(frozen)]
@@ -254,6 +314,14 @@ def main():
     inside = (int(region_tile["x0"]) + 2, int(region_tile["y0"]) + 2, int(region_tile["x1"]) - 2,
               int(region_tile["y1"]) - 2)   # strictly inside this tile, so neighbours are untouched
     review.append_region(root, version, "TCGA", row["slide_id"], inside, "review", "tests", "pen")
+    queue = read_csv(root / "patches" / version / "qc" / "qc-test" / "review_queue_full.csv")
+    slide_counts = read_csv(root / "patches" / version / "qc" / "qc-test" / "slides_full.csv")
+    check("qc: review queue lists every tissue tile sent to review or rejected",
+          len(queue) == sum(int(s["review"]) + int(s["reject"]) for s in slide_counts)
+          and all(q["decision"] in ("review", "reject") for q in queue))
+    edge_tile = next(d for d in read_csv(qc.decisions_path(root, version, "qc-test", row))
+                     if d["role"] == "edge" and d["decision"] == "review")
+    review.append_patch_review(root, version, edge_tile["patch_id"], "accept", "tests", notes="interpretable tissue")
     review.sign_off_slide(root, version, "TCGA", row["slide_id"], "approve", "tests", mask=True, focus=True)
     check("review: bad decision refused", _raises(lambda: review.append_patch_review(
         root, version, rejected_by_patch["patch_id"], "maybe", "tests")))
@@ -276,17 +344,24 @@ def main():
           rejected_by_patch["patch_id"] not in model_ids and region_tile["patch_id"] not in model_ids)
     qc_accepted = sum(d["decision"] == "accept" for s in ("mixed", "faint", "coarse_ok")
                       for d in read_csv(qc.decisions_path(root, version, "qc-test", picks[s])))
-    check("export: every other QC-accepted tile of included patients is in", len(model) == qc_accepted - 2,
-          (len(model), qc_accepted))
+    check("export: every other QC-accepted tile of included patients is in, plus the reinstated edge tile",
+          len(model) == qc_accepted - 2 + 1, (len(model), qc_accepted))
+    check("export: an edge tile is in only after a reviewer accepts it",
+          [m["role"] for m in model if m["patch_id"] == edge_tile["patch_id"]] == ["edge"]
+          and sum(m["role"] == "edge" for m in model) == 1 and settings["counts"]["model_edge_tiles"] == 1)
     check("export: rows carry the shared fold",
           {m["fold"] for m in model if m["patient_id"] == row["patient_id"]} == {"0"}
           and {m["fold"] for m in model if m["source"] == "CPTAC"} == {"external"})
     check("export: settings record hashes and the review files",
           settings["modeling_sha256"] == common.sha256_file(out / "modeling_patches.csv")
-          and len(settings["review_files"]) == 3 and settings["counts"]["decided_by"].get("qc", 0) > 0)
+          and sum(k.startswith("review/") for k in settings["inputs"]) == 3
+          and all(not Path(k).is_absolute() for k in settings["inputs"])
+          and settings["counts"]["decided_by"].get("qc", 0) > 0)
 
     # ------------------------------------------------------------------ 7. loader and Macenko
-    tiles = loader.load_modeling(out)
+    check("loader: an incomplete export is refused unless a partial one is intended",
+          _raises(lambda: loader.load_modeling(out)))
+    tiles = loader.load_modeling(out, allow_partial=True)
     roles0, roles1 = loader.with_roles(tiles, 0), loader.with_roles(tiles, 1)
     check("loader: roles per fold", set(roles0[roles0.patient_id == row["patient_id"]].role) == {"validation"}
           and set(roles1[roles1.patient_id == row["patient_id"]].role) == {"train"}
@@ -315,6 +390,24 @@ def main():
               _raises(lambda: loader.normalize_tile(Broken(), rgb, "x", work / "norm_failures.csv"))
               and "stain matrix failed" in (work / "norm_failures.csv").read_text())
 
+    check("loader: a current export loads", loader.stale_inputs(out) == [])
+    review.append_patch_review(root, version, tiles.iloc[5].patch_id, "reject", "tests", "fold")
+    changes = loader.stale_inputs(out)
+    check("loader: a review added after the export makes it stale",
+          changes == [f"review/{version}/patch_reviews.csv changed"]
+          and _raises(lambda: loader.load_modeling(out, allow_partial=True)),
+          changes)
+    signoff_policy = policy("p_signoff", version="qc-signoff", frozen="true", reviewer='"tests"', notes='"x"',
+                            calibration_patients=calibration, require_signoff="true")
+    qc.main(["--root", str(root), "--subset", "full", "--log-dir", str(logs), "--policy", str(signoff_policy)])
+    export.main(["--root", str(root), "--subset", "full", "--manifest", str(test_manifest), "--log-dir", str(logs),
+                 "--policy", str(signoff_policy)])
+    signed = sorted((root / "patches" / version / "export" / "qc-signoff").glob("full_*"))[-1]
+    signed_index = {r["patient_id"]: r for r in read_csv(signed / "patient_index.csv")}
+    check("export: with require_signoff, a slide without a sign-off blocks its patient",
+          "sign-off" in signed_index[row["patient_id"]]["blocked_reasons"]
+          and "sign-off" in signed_index[picks["coarse_ok"]["patient_id"]]["blocked_reasons"])
+
     # ------------------------------------------------------------------ 8. tampering, export block
     with h5py.File(h5_path, "r+") as h5:
         img = np.asarray(Image.open(io.BytesIO(h5["tiles"][3].tobytes()))).copy()
@@ -331,8 +424,108 @@ def main():
     index = {r["patient_id"]: r for r in read_csv(out / "patient_index.csv")}
     check("export: a slide that failed the audit blocks its patient",
           index[row["patient_id"]]["included"] == "False" and "audit" in index[row["patient_id"]]["blocked_reasons"])
+    qc_png = common.output_paths(root, picks["coarse_ok"], version)[1]
+    original = qc_png.read_bytes()
+    qc_png.write_bytes(original[:-1] + bytes([original[-1] ^ 1]))
+    time.sleep(1.1)
+    tile.main(common_args + ["--slides", picks["coarse_ok"]["slide_id"], "--audit", "--workers", "1"])
+    last = json.loads(sorted((root / "state" / "tiling" / version).glob("audit_full_*.json"))[-1].read_text())
+    check("audit: a changed QC image is caught", "QC image sha256 differs from receipt" in last["slides"][0]["errors"])
+    qc_png.write_bytes(original)
 
-    # ------------------------------------------------------------------ 9. shell script
+    # ------------------------------------------------------------------ 9. tiles beyond the cap stay out
+    cap_cfg = config("tiling-cap-a", version="tiling-cap-a", max_tiles_per_slide=20)
+    cap_ids = [ids[0], picks["coarse_ok"]["slide_id"]]
+    tile.main(common_args + ["--slides"] + cap_ids + ["--config", str(cap_cfg), "--workers", "2"])
+    tile.main(common_args + ["--slides"] + cap_ids + ["--config", str(cap_cfg), "--audit", "--workers", "2"])
+    qc.main(qc_args + ["--tiling-config", str(cap_cfg)])
+    export.main(export_args + ["--tiling-config", str(cap_cfg)])
+    cap_out = sorted((root / "patches" / "tiling-cap-a" / "export" / "qc-test").glob("full_*"))[-1]
+    cap_model = read_csv(cap_out / "modeling_patches.csv")
+    cap_patient = {r["patient_id"]: r for r in read_csv(cap_out / "patient_index.csv")}[picks["coarse_ok"]["patient_id"]]
+    check("export: stored_tiles_only keeps only stored tiles; the rest are counted",
+          cap_model and all(m["stored"] == "True" for m in cap_model) and int(cap_patient["accepted_not_stored"]) > 0
+          and int(cap_patient["model_tiles"]) + int(cap_patient["accepted_not_stored"]) == int(cap_patient["accept"]),
+          cap_patient)
+
+    # ------------------------------------------------------------------ 10. packages, combining, sampling
+    b_row = picks["single_b"]
+    b_args = ["--root", str(root), "--subset", "B", "--manifest", str(test_manifest), "--log-dir", str(logs)]
+    a_args = ["--root", str(root), "--subset", "A", "--manifest", str(test_manifest), "--log-dir", str(logs)]
+    test_files = json.loads(test_manifest.read_text())["files"]
+    in_a = {r["slide_id"] for r in split.select_files(test_files, "A", split.build_patient_split(test_files))}
+    a_ids = [s for s in ids if s in in_a]
+    b_ids = [s for s in ids if s not in in_a] + [b_row["slide_id"]]
+    common.output_paths(root, row, version)[4].unlink()      # re-tile the slide changed in section 8
+    for subset_args, subset_ids in ((a_args, a_ids), (b_args, b_ids)):
+        tile.main(subset_args + ["--slides"] + subset_ids + ["--workers", "2"])   # also writes index_<subset>
+        tile.main(subset_args + ["--slides"] + subset_ids + ["--audit", "--workers", "2"])
+    for subset_args in (a_args, b_args):
+        qc.main(subset_args[:4] + ["--log-dir", str(logs), "--policy", str(frozen)])
+    b_edge = next(d for d in read_csv(qc.decisions_path(root, version, "qc-test", b_row))
+                  if d["role"] == "edge" and d["decision"] == "review")
+    review.append_patch_review(root, version, b_edge["patch_id"], "accept", "tests", notes="interpretable tissue")
+    for subset_args in (a_args, b_args):
+        export.main(subset_args + ["--policy", str(frozen)])
+    exp_a = sorted((root / "patches" / version / "export" / "qc-test").glob("A_*"))[-1]
+    exp_b = sorted((root / "patches" / version / "export" / "qc-test").glob("B_*"))[-1]
+    packages = work / "packages"
+    pkg_a, pkg_b = packages / "A", packages / "B"
+    check("package: an incomplete export is refused without --allow-partial",
+          package.main(["--export", str(exp_a), "--out", str(pkg_a), "--log-dir", str(logs)]) == 2 and not pkg_a.exists())
+    code_a = package.main(["--export", str(exp_a), "--out", str(pkg_a), "--allow-partial", "--log-dir", str(logs)])
+    code_b = package.main(["--export", str(exp_b), "--out", str(pkg_b), "--allow-partial", "--log-dir", str(logs)])
+    manifest_b = json.loads((pkg_b / "package_manifest.json").read_text())
+    check("package: built, the accepted edge tile reread from its slide and stored",
+          code_a == code_b == 0 and manifest_b["counts"]["tiles_reread_from_slides"] == 1, (code_a, code_b))
+    tiles_a = loader.load_modeling(pkg_a, allow_partial=True)
+    with loader.TileReader(pkg_a) as reader:
+        ok = [reader.read(r).shape == (224, 224, 3) for _, r in tiles_a.iterrows()]
+    check("package: every tile stored and readable with only the package",
+          len(tiles_a) == len(read_csv(exp_a / "modeling_patches.csv")) and all(ok)
+          and set(tiles_a["stored"]) == {True} and loader.verify_package(pkg_a) == [])
+    review.append_patch_review(root, version, b_edge["patch_id"], "reject", "tests", "background")
+    check("package: a stale export is refused", package.main(
+        ["--export", str(exp_b), "--out", str(packages / "B2"), "--allow-partial", "--log-dir", str(logs)]) == 2)
+
+    combined = packages / "AB"
+    combine_args = ["--parts", f"A={pkg_a}", f"B={pkg_b}", "--out", str(combined), "--log-dir", str(logs)]
+    check("combine: incomplete parts refused without --allow-partial", combine.main(combine_args) == 2)
+    check("combine: a patient in two parts refused", combine.main(
+        ["--parts", f"A={pkg_a}", f"A2={pkg_a}", "--out", str(packages / "AA"), "--allow-partial",
+         "--log-dir", str(logs)]) == 2)
+    check("combine: joined", combine.main(combine_args + ["--allow-partial"]) == 0)
+    tiles_ab = loader.load_modeling(combined, allow_partial=True)
+    with loader.TileReader(combined) as reader:
+        both = [reader.read(tiles_ab[tiles_ab.part == p].iloc[0]).shape == (224, 224, 3) for p in ("A", "B")]
+    check("combine: rows of both parts, each read from its own package",
+          len(tiles_ab) == len(tiles_a) + manifest_b["counts"]["tiles"] and all(both))
+    check("loader: an incomplete combination is refused unless a partial one is intended",
+          _raises(lambda: loader.load_modeling(combined)))
+
+    folds = common.read_folds()
+    b_fold = int(folds[("TCGA", b_row["patient_id"])])
+    roles = loader.with_roles(tiles_ab, (b_fold + 1) % 5)
+    bag = loader.training_sample(roles, b_row["patient_id"], epoch=0)
+    again = loader.training_sample(roles, b_row["patient_id"], epoch=0)
+    other = loader.training_sample(roles, b_row["patient_id"], epoch=1)
+    check("sampler: 64 tiles, the same for the same epoch, different for another epoch",
+          len(bag) == 64 and list(bag.patch_id) == list(again.patch_id) and list(bag.patch_id) != list(other.patch_id))
+    small = loader.training_sample(roles, b_row["patient_id"], epoch=0, count=10)
+    check("sampler: no repeats when the patient has enough tiles", small.patch_id.nunique() == 10)
+    check("sampler: a validation patient is refused", _raises(lambda: loader.training_sample(
+        loader.with_roles(tiles_ab, b_fold), b_row["patient_id"], epoch=0)))
+    seen = [pid for chunk in loader.evaluation_batches(tiles_ab, b_row["patient_id"], 16) for pid in chunk.patch_id]
+    check("sampler: evaluation visits every tile of the patient once",
+          sorted(seen) == sorted(tiles_ab[tiles_ab.patient_id == b_row["patient_id"]].patch_id))
+
+    damaged = sorted((pkg_a / "tiles").rglob("*.h5"))[0]
+    data = bytearray(damaged.read_bytes())
+    data[len(data) // 2] ^= 1
+    damaged.write_bytes(bytes(data))
+    check("package: verify_package catches a changed file", any("changed" in p for p in loader.verify_package(pkg_a)))
+
+    # ------------------------------------------------------------------ 11. shell script
     script = REPO / "scripts" / "run_pipeline.sh"
     dry = subprocess.run(["bash", str(script), "--root", str(root), "--subset", "full", "--steps",
                           "register,tile,qc", "--dry-run"], capture_output=True, text=True)

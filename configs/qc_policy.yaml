@@ -1,19 +1,25 @@
-# Tile QC decisions for data_prep/qc.py. tile.py stores every tissue tile's scores; this file decides
-# which tiles are used, so changing a value here never requires re-tiling. Bump `version` when you
-# change a value: decisions go to patches/<tiling version>/qc/<version>/.
-# Set `frozen: true` (with reviewer and notes) only once the team has agreed the values; export.py
-# builds a modeling list only from a frozen policy. Values below are pilot values for team review.
-# A blur score of exactly 0 (a flat tile) is always sent to review, whatever these say.
+# Tile QC decisions for data_prep/qc.py. tile.py stores every tile's scores; this file decides which
+# tiles are used, so changing a value here never requires re-tiling. Bump `version` when you change
+# a value: decisions go to patches/<tiling version>/qc/<version>/.
+# Set `frozen: true` (with reviewer, notes, calibration_patients and both blur cutoffs) only once the
+# team has agreed the values; export.py builds a modeling list only from a frozen policy.
+# Edge tiles (touching the tissue mask, not more than half tissue) never pass automatically: they are
+# rejected by the rules below or sent to review, and a reviewer can accept one.
 version: qc-v1
 frozen: false
 reviewer: ""               # who approved the frozen policy
 notes: ""                  # how the cutoffs were chosen (e.g. which pilot slides were reviewed)
+calibration_patients: []   # TCGA patients whose tiles were used to choose the cutoffs (never CPTAC)
+require_signoff: false     # true: export.py blocks every slide without a sign-off (approve or exclude)
+stored_tiles_only: true    # model only tissue tiles whose pixels are stored (the seeded per-slide sample
+                           # of max_tiles_per_slide), so training needs only the .h5 files, not the slides
 # Reject:
 max_glass_fraction: 0.9    # more than this fraction of the tile is uncolored glass
 blank_fraction: 0.99       # at least this fraction is near-white, or near-black
+blur_reject_below: 50      # Laplacian variance below this: out of focus (pilot value)
 # Review (null = off):
+blur_review_below: 100     # Laplacian variance below this (and not rejected): check focus (pilot value)
 dark_mean_rgb: 50          # mean R, G and B all below this
-min_blur: null             # Laplacian variance below this; tiling-v6 used 20 (team decision)
 glass_review_above: null   # glass fraction above this (but not above max_glass_fraction)
 pale_review_below: null    # mean saturation below this ...
 pale_value_above: 180      # ... and mean brightness above this (a pale, washed-out tile)

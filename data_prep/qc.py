@@ -1,4 +1,4 @@
-"""Apply the QC policy to tiled slides: an accept / review / reject decision for every tissue tile.
+"""Apply the QC policy to tiled slides: an accept / review / reject decision for every scored tile.
 
 Examples:
     python data_prep/qc.py --root ~/Bioinformatics/WSI/data --subset B
@@ -7,13 +7,18 @@ Examples:
 tile.py stores every tissue tile's scores and makes no quality decisions. This script reads
 patches/<tiling version>/index_<subset>.csv and each slide's _patches.csv, applies
 configs/qc_policy.yaml, and writes under patches/<tiling version>/qc/<policy version>/:
-  {source}/{patient_id}/{slide_id}_decisions.csv   one row per tissue tile; stored ones carry h5_index
-  slides_<subset>.csv                              accept / review / reject counts per slide
+  {source}/{patient_id}/{slide_id}_decisions.csv   one row per tissue or edge tile
+  slides_<subset>.csv                              decision counts per slide (tissue, edge)
+  review_queue_<subset>.csv                        every tissue tile sent to review or rejected, with its
+                                                   coordinates and key scores, for the reviewer
   policy_<subset>.json                             the policy, its SHA-256 and the inputs used
-Edge tiles (touching the mask, not tissue) are never candidates. With a tiling cap, tissue tiles that
-were not stored still get a decision and can be reread from the slide. Review cases need a person
-(review.py); only accepted tiles reach the model (export.py). A blur score of exactly 0 (a flat tile)
-is always sent to review, whatever the cutoffs.
+Tissue tiles are accepted unless a rule rejects them or sends them to review. Edge tiles (touching the
+mask, not more than half tissue) never pass automatically: the same rules can reject them, and the
+rest go to review with reason "edge", so a reviewer can reinstate interpretable tissue (review.py).
+Tiles that were not stored (edge tiles, tissue tiles beyond the cap) are reread from the slide.
+Only accepted tiles reach the model (export.py). Blur: below blur_reject_below is rejected, below
+blur_review_below goes to review; with both unset, a blur score of exactly 0 (a flat tile) still
+goes to review.
 
 Exit codes: 0 = done, 2 = setup or policy problem.
 """
@@ -30,14 +35,20 @@ from pathlib import Path
 import yaml
 
 from common import (DEFAULT_POLICY, DEFAULT_TILING_CONFIG, is_level, is_name, is_num, load_settings,
-                    tiling_version)
+                    tiling_version, write_rows)
 from download import DEFAULT_LOG_DIR, setup_logging, write_json
 
-POLICY_KEYS = {"version", "frozen", "reviewer", "notes", "max_glass_fraction", "blank_fraction",
-               "dark_mean_rgb", "min_blur", "glass_review_above", "pale_review_below",
-               "pale_value_above", "dark_fraction_review_above", "green_fraction_review_above"}
-DECISION_FIELDS = ["patch_id", "stored", "h5_index", "grid_index", "x_target", "y_target", "decision",
-                   "reasons"]
+POLICY_KEYS = {"version", "frozen", "reviewer", "notes", "calibration_patients", "require_signoff",
+               "stored_tiles_only",
+               "max_glass_fraction", "blank_fraction", "blur_reject_below", "blur_review_below",
+               "dark_mean_rgb", "glass_review_above", "pale_review_below", "pale_value_above",
+               "dark_fraction_review_above", "green_fraction_review_above"}
+DECISION_FIELDS = ["patch_id", "role", "stored", "h5_index", "grid_index", "x_target", "y_target",
+                   "decision", "reasons"]
+ROLES = ("tissue", "edge")
+QUEUE_FIELDS = ["source", "patient_id", "slide_id", "patch_id", "decision", "reasons", "stored", "h5_index",
+                "x_target", "y_target", "x0", "y0", "x1", "y1", "laplacian_variance", "mean_saturation",
+                "mean_value", "glass_fraction", "dark_fraction", "green_fraction"]
 
 log = logging.getLogger("qc")
 
@@ -60,7 +71,9 @@ def parse_args(argv=None):
 def load_policy(path=DEFAULT_POLICY):
     """Read and validate the QC policy; return (policy dict, file SHA-256, file text).
 
-    A frozen policy must name its reviewer and say in `notes` how its cutoffs were chosen.
+    A frozen policy must name its reviewer, say in `notes` how its cutoffs were chosen, list its
+    calibration patients, and set both blur cutoffs. export.py checks the calibration patients
+    against the fold map (TCGA only).
     """
     def optional(check):
         return lambda v, s: v is None or check(v)
@@ -68,15 +81,29 @@ def load_policy(path=DEFAULT_POLICY):
     def fraction(v):
         return is_num(v) and 0 <= v <= 1
 
+    def blur(v, s):
+        if v is None:
+            return not s["frozen"]
+        return is_num(v) and v >= 0
+
+    def patients(v, s):
+        return (isinstance(v, list) and all(isinstance(p, str) and p.strip() for p in v)
+                and len(set(v)) == len(v) and (len(v) > 0 or not s["frozen"]))
+
     checks = {
         "version": lambda v, s: is_name(v),
         "frozen": lambda v, s: isinstance(v, bool),
         "reviewer": lambda v, s: isinstance(v, str) and (v.strip() != "" or not s["frozen"]),
         "notes": lambda v, s: isinstance(v, str) and (v.strip() != "" or not s["frozen"]),
+        "calibration_patients": patients,
+        "require_signoff": lambda v, s: isinstance(v, bool),
+        "stored_tiles_only": lambda v, s: isinstance(v, bool),
         "max_glass_fraction": lambda v, s: fraction(v),
         "blank_fraction": lambda v, s: is_num(v) and 0 < v <= 1,
+        "blur_reject_below": blur,
+        "blur_review_below": lambda v, s: blur(v, s) and (
+            v is None or s["blur_reject_below"] is None or v >= s["blur_reject_below"]),
         "dark_mean_rgb": optional(lambda v: is_num(v) and 0 <= v <= 255),
-        "min_blur": optional(lambda v: is_num(v) and v >= 0),
         "glass_review_above": optional(fraction),
         "pale_review_below": optional(lambda v: is_num(v) and 0 <= v <= 255),
         "pale_value_above": lambda v, s: is_level(v) or (is_num(v) and 0 <= v <= 255),
@@ -87,7 +114,10 @@ def load_policy(path=DEFAULT_POLICY):
 
 
 def decide(row, policy):
-    """Return (decision, reasons) for one tile's scores. Any reject reason outranks review."""
+    """Return (decision, reasons) for one tile's scores. Any reject reason outranks review.
+
+    An edge tile (row["role"] == "edge") that no rule rejects goes to review with reason "edge".
+    """
     reject, review = [], []
     score = {k: float(row[k]) for k in ("glass_fraction", "near_white_fraction", "near_black_fraction",
                                         "laplacian_variance", "mean_r", "mean_g", "mean_b",
@@ -99,10 +129,13 @@ def decide(row, policy):
         reject.append("near_white")
     if score["near_black_fraction"] >= policy["blank_fraction"]:
         reject.append("near_black")
-    if score["laplacian_variance"] == 0:
-        review.append("flat_tile")
-    elif policy["min_blur"] is not None and score["laplacian_variance"] < policy["min_blur"]:
+    focus = score["laplacian_variance"]
+    if policy["blur_reject_below"] is not None and focus < policy["blur_reject_below"]:
+        reject.append("blur")
+    elif policy["blur_review_below"] is not None and focus < policy["blur_review_below"]:
         review.append("low_blur")
+    elif focus == 0:
+        review.append("flat_tile")
     dark = policy["dark_mean_rgb"]
     if dark is not None and all(score[k] < dark for k in ("mean_r", "mean_g", "mean_b")):
         review.append("very_dark")
@@ -117,6 +150,8 @@ def decide(row, policy):
     if (policy["green_fraction_review_above"] is not None
             and score["green_fraction"] > policy["green_fraction_review_above"]):
         review.append("green_ink")
+    if row.get("role") == "edge":
+        review.insert(0, "edge")
     decision = "reject" if reject else "review" if review else "accept"
     return decision, ";".join(reject + review) or "pass"
 
@@ -147,19 +182,19 @@ def main(argv=None):
         return 2
     log.info("Policy %s (sha256 %s): %s | tiling %s, %d slides | log %s", args.policy,
              policy_sha[:12], json.dumps(policy, sort_keys=True), version, len(slides), log_path)
-    if policy["min_blur"] is None:
-        log.warning("min_blur is null: only flat tiles (blur score 0) are sent to review for blur")
+    if policy["blur_reject_below"] is None and policy["blur_review_below"] is None:
+        log.warning("blur cutoffs are null: only flat tiles (blur score 0) are sent to review for blur")
     if not policy["frozen"]:
         log.warning("policy is not frozen: export.py will not build a modeling list from it")
 
     out = tiled_dir / "qc" / policy["version"]
-    totals, summary = Counter(), []
+    totals, summary, queue = Counter(), [], []
     for slide in slides:
         patches_csv = args.root / slide["csv"]
         if patches_csv.stat().st_size != int(slide["csv_bytes"]):
             log.error("%s changed since tiling; run tile.py --audit", patches_csv)
             return 2
-        counts, reasons = Counter(), Counter()
+        counts, reasons = {role: Counter() for role in ROLES}, Counter()
         path = decisions_path(args.root, version, policy["version"], slide)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")
@@ -167,35 +202,49 @@ def main(argv=None):
             writer = csv.DictWriter(target, fieldnames=DECISION_FIELDS, extrasaction="ignore")
             writer.writeheader()
             for row in csv.DictReader(source):
-                if row["role"] != "tissue":
+                if row["role"] not in ROLES:
                     continue
                 row["decision"], row["reasons"] = decide(row, policy)
                 writer.writerow(row)
-                counts[row["decision"]] += 1
-                reasons.update(r for r in row["reasons"].split(";") if r != "pass")
+                counts[row["role"]][row["decision"]] += 1
+                if row["role"] == "tissue":
+                    reasons.update(r for r in row["reasons"].split(";") if r != "pass")
+                    if row["decision"] != "accept":
+                        queue.append({k: row[k] for k in QUEUE_FIELDS})
         temporary.replace(path)
-        if sum(counts.values()) != int(slide["n_tissue_tiles"]):
-            log.error("%s: %d tissue rows, index says %s", slide["slide_id"], sum(counts.values()),
-                      slide["n_tissue_tiles"])
-            return 2
-        totals.update(counts)
+        for role in ROLES:
+            expected = slide.get(f"n_{role}_tiles", "")
+            if expected != "" and sum(counts[role].values()) != int(expected):
+                log.error("%s: %d %s rows, index says %s", slide["slide_id"], sum(counts[role].values()),
+                          role, expected)
+                return 2
+        totals.update(counts["tissue"])
+        totals.update({f"edge_{k}": v for k, v in counts["edge"].items()})
         summary.append({"source": slide["source"], "patient_id": slide["patient_id"],
                         "slide_id": slide["slide_id"], "h5": slide["h5"],
                         "decisions": str(path.relative_to(args.root)),
                         "tissue_tiles": slide["n_tissue_tiles"], "stored_tiles": slide["n_stored_tiles"],
-                        "accept": counts["accept"], "review": counts["review"],
-                        "reject": counts["reject"], "reasons": json.dumps(dict(sorted(reasons.items())))})
+                        "accept": counts["tissue"]["accept"], "review": counts["tissue"]["review"],
+                        "reject": counts["tissue"]["reject"],
+                        "reasons": json.dumps(dict(sorted(reasons.items()))),
+                        "edge_tiles": sum(counts["edge"].values()), "edge_review": counts["edge"]["review"],
+                        "edge_reject": counts["edge"]["reject"]})
 
     with (out / f"slides_{args.subset}.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(summary[0]))
         writer.writeheader()
         writer.writerows(summary)
+    queue.sort(key=lambda r: (r["decision"] != "review", r["source"], r["patient_id"], r["slide_id"],
+                              int(r["y_target"]), int(r["x_target"])))
+    write_rows(out / f"review_queue_{args.subset}.csv", queue, QUEUE_FIELDS)
     write_json(out / f"policy_{args.subset}.json", {
         "policy": policy, "policy_sha256": policy_sha, "policy_yaml": policy_text,
         "tiling_version": version, "index_sha256": hashlib.sha256(index_path.read_bytes()).hexdigest(),
         "counts": dict(totals), "applied_at_utc": datetime.now(timezone.utc).isoformat()})
-    log.info("%d slides: %d accept, %d review, %d reject; written to %s", len(summary),
-             totals["accept"], totals["review"], totals["reject"], out)
+    log.info("%d slides: tissue tiles %d accept, %d review, %d reject; edge tiles %d review, "
+             "%d reject; written to %s (review queue: %d tissue tiles)", len(summary), totals["accept"],
+             totals["review"], totals["reject"], totals["edge_review"], totals["edge_reject"], out,
+             len(queue))
     return 0
 
 

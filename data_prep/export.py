@@ -6,19 +6,30 @@ Examples:
 A tile is in modeling_patches.csv only if all of these hold:
   - its slide was tiled with the current config and CODE_VERSION, and the latest tile.py --audit
     covering the slide passed after it was tiled;
-  - the QC policy is frozen (qc_policy.yaml: frozen, reviewer, notes), and qc.py applied it;
-  - after reviews (review.py), its decision is accept; review cases and slide exclusions stay out;
+  - the QC policy is frozen (qc_policy.yaml: frozen, reviewer, notes, calibration patients, blur
+    cutoffs), its calibration patients are TCGA patients in the fold map, and qc.py applied it;
+  - after reviews (review.py), its decision is accept; review cases and slide exclusions stay out.
+    Edge tiles are never accepted by QC, so an edge tile is in only if a reviewer accepted it;
   - its patient is in the shared fold map, and every one of the patient's slides in the subset is
-    accounted for: exported, or explicitly excluded at sign-off.
+    accounted for: exported, or explicitly excluded at sign-off. With require_signoff: true in the
+    policy, a slide without a sign-off (approve or exclude) blocks its patient.
 Accounting is per patient: a patient with a missing, failed or unaudited slide is listed as blocked,
 without blocking anyone else. A patient with no accepted tiles is listed as an empty bag.
 
 One modeling list serves every fold: each row carries the patient's fold, and loader.py marks rows
-train / validation / external for the fold being trained. Accepted tiles beyond the tiling cap are
-included with stored = False; loader.py rereads them from the slide.
+train / validation / external for the fold being trained. With stored_tiles_only: true in the policy
+(the default), the model uses only tissue tiles whose pixels are stored (the seeded per-slide sample of
+max_tiles_per_slide), so training needs only the .h5 files; accepted tiles beyond the cap are counted
+but left out. Edge tiles a reviewer accepted are always included; package.py stores their pixels.
+With stored_tiles_only: false, accepted tiles beyond the cap are included and reread from the slide.
+
+The export is complete when no patient is blocked; export_settings.json records it, and loader.py
+refuses an incomplete export unless told a partial one is intended (for previews).
 
 Writes patches/<tiling version>/export/<policy version>/<subset>_<UTC time>/: modeling_patches.csv,
-patient_index.csv, slide_status.csv and export_settings.json (hashes of every input).
+patient_index.csv, slide_status.csv and export_settings.json (hashes of every input, with paths
+relative to --root). loader.py refuses an export whose recorded inputs have changed since (reviews,
+audits, QC decisions, fold map): rerun export.py after any of them changes.
 
 Exit codes: 0 = exported, no patient blocked, 1 = exported but some patients are blocked,
 2 = setup problem (e.g. policy not frozen, QC not run).
@@ -42,7 +53,7 @@ from common import (CODE_VERSION, DEFAULT_FOLDS, DEFAULT_POLICY, DEFAULT_TILING_
                     write_rows)
 from download import DEFAULT_LOG_DIR, DEFAULT_MANIFEST, load_manifest, setup_logging, write_json
 
-MODEL_FIELDS = ["source", "patient_id", "slide_id", "fold", "patch_id", "grid_index", "x_target",
+MODEL_FIELDS = ["source", "patient_id", "slide_id", "fold", "patch_id", "role", "grid_index", "x_target",
                 "y_target", "x0", "y0", "x1", "y1", "stored", "h5", "h5_index", "slide_relpath",
                 "pixel_sha256", "decided_by"]
 
@@ -68,10 +79,33 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+def audit_files(root, version, subset):
+    """Every saved audit for a tiling version and subset, oldest first."""
+    return sorted((Path(root) / "state" / "tiling" / version).glob(f"audit_{subset}_*.json"))
+
+
+def qc_record(root, version, policy_version, subset):
+    """The record qc.py writes when it applies a policy to a subset."""
+    return Path(root) / "patches" / version / "qc" / policy_version / f"policy_{subset}.json"
+
+
+def input_hashes(root, version, policy_version, subset, folds_path):
+    """SHA-256 of every input an export depends on, keyed by path relative to `root`.
+
+    loader.py recomputes this to detect a stale export; the fold map is keyed "folds".
+    """
+    root = Path(root)
+    paths = [*review.review_files(root, version), *audit_files(root, version, subset),
+             qc_record(root, version, policy_version, subset)]
+    hashes = {str(p.relative_to(root)): sha256_file(p) for p in paths if p.exists()}
+    hashes["folds"] = sha256_file(folds_path)
+    return hashes
+
+
 def latest_audits(root, version, subset):
     """{slide_id: (audit result, audit time, audit file)} from the newest audit covering each slide."""
     found = {}
-    for path in sorted((Path(root) / "state" / "tiling" / version).glob(f"audit_{subset}_*.json")):
+    for path in audit_files(root, version, subset):
         report = json.loads(path.read_text())
         for result in report["slides"]:
             found[result["slide_id"]] = (result, report["audited_at_utc"], path)
@@ -94,13 +128,16 @@ def main(argv=None):
                                f"and notes in {policy_path} once the team agrees the cutoffs")
         folds_path = args.folds.expanduser().resolve()
         folds = read_folds(folds_path)
+        not_training = [p for p in policy["calibration_patients"] if ("TCGA", p) not in folds]
+        if not_training:
+            raise RuntimeError(f"calibration patients must be TCGA patients in the fold map: {not_training}")
         _, manifest = load_manifest(args.manifest.expanduser().resolve())
         all_files = manifest["files"]
         expected = split.select_files(all_files, args.subset, split.build_patient_split(all_files))
         reviews = review.load_reviews(args.root, version)
         audits = latest_audits(args.root, version, args.subset)
-        qc_record = args.root / "patches" / version / "qc" / policy["version"] / f"policy_{args.subset}.json"
-        if not qc_record.exists() or json.loads(qc_record.read_text())["policy_sha256"] != policy_sha:
+        record = qc_record(args.root, version, policy["version"], args.subset)
+        if not record.exists() or json.loads(record.read_text())["policy_sha256"] != policy_sha:
             raise RuntimeError(f"run qc.py with policy {policy['version']} first (or again: the "
                                f"policy file changed since)")
     except (OSError, RuntimeError, ValueError, KeyError, yaml.YAMLError) as error:
@@ -126,6 +163,8 @@ def main(argv=None):
             state, why = "blocked", "failed the audit: " + "; ".join(audit[0]["errors"][:2])
         elif not qc.decisions_path(args.root, version, policy["version"], row).exists():
             state, why = "blocked", "no QC decisions; run qc.py"
+        elif policy["require_signoff"] and signoff.get("decision") != "approve":
+            state, why = "blocked", "no sign-off (the policy requires one per slide)"
         else:
             state, why = "ok", ""
         status.append(dict(source=row["source"], patient_id=row["patient_id"], slide_id=row["slide_id"],
@@ -158,14 +197,20 @@ def main(argv=None):
             key = (s["source"], s["patient_id"])
             row = next(r for r in expected if r["slide_id"] == s["slide_id"] and r["source"] == s["source"])
             h5_path, _, _, csv_path, _ = output_paths(args.root, row, version)
-            tiles = {t["patch_id"]: t for t in read_rows(csv_path) if t["role"] == "tissue"}
+            tiles = {t["patch_id"]: t for t in read_rows(csv_path) if t["role"] in qc.ROLES}
             for d in read_rows(qc.decisions_path(args.root, version, policy["version"], row)):
                 tile = tiles[d["patch_id"]]
                 seen_ids.add(d["patch_id"])
                 decision, _, decided_by = review.resolve(tile, d["decision"], d["reasons"], reviews)
-                patients[key][decision] += 1
-                patients[key]["tissue_tiles"] += 1
+                if tile["role"] == "tissue":
+                    patients[key][decision] += 1
+                    patients[key]["tissue_tiles"] += 1
                 if decision == "accept" and key in included:
+                    if (policy["stored_tiles_only"] and tile["role"] == "tissue"
+                            and tile["stored"] != "True"):
+                        patients[key]["not_stored"] += 1
+                        continue
+                    patients[key]["model_edge"] += tile["role"] == "edge"
                     writer.writerow({**tile, "fold": folds[key], "h5": str(h5_path.relative_to(args.root)),
                                      "decided_by": decided_by})
                     patients[key]["model_tiles"] += 1
@@ -182,7 +227,8 @@ def main(argv=None):
                           excluded_slides=sum(s["status"] == "excluded" for s in slides_),
                           included=key in included, tissue_tiles=c["tissue_tiles"], accept=c["accept"],
                           review=c["review"], reject=c["reject"], model_tiles=c["model_tiles"],
-                          model_tiles_stored=c["model_stored"],
+                          model_tiles_stored=c["model_stored"], model_edge_tiles=c["model_edge"],
+                          accepted_not_stored=c["not_stored"],
                           empty_bag=key in included and c["model_tiles"] == 0,
                           blocked_reasons="; ".join(blocked[key])))
     write_rows(out / "patient_index.csv", index)
@@ -192,14 +238,17 @@ def main(argv=None):
               "empty_bags": sum(r["empty_bag"] for r in index),
               "model_tiles": sum(r["model_tiles"] for r in index),
               "model_tiles_stored": sum(r["model_tiles_stored"] for r in index),
+              "model_edge_tiles": sum(r["model_edge_tiles"] for r in index),
+              "accepted_not_stored": sum(r["accepted_not_stored"] for r in index),
               "decided_by": dict(by_whom)}
-    audit_files = sorted({str(a[2]) for a in audits.values()})
+    complete = counts["patients_blocked"] == 0
     write_json(out / "export_settings.json", {
-        "subset": args.subset, "created_at_utc": stamp.isoformat(), "tiling_version": version,
+        "subset": args.subset, "complete": complete, "created_at_utc": stamp.isoformat(),
+        "tiling_version": version, "stored_tiles_only": policy["stored_tiles_only"],
         "config_sha256": config_sha, "code_version": CODE_VERSION, "policy": policy,
-        "policy_sha256": policy_sha, "folds_file": str(folds_path), "folds_sha256": sha256_file(folds_path),
-        "review_files": {str(p): sha256_file(p) for p in review.review_files(args.root, version)},
-        "audit_files": {p: sha256_file(p) for p in audit_files},
+        "policy_sha256": policy_sha, "folds_file": folds_path.name, "folds_sha256": sha256_file(folds_path),
+        "inputs": input_hashes(args.root, version, policy["version"], args.subset, folds_path),
+        "audits_used": sorted({str(a[2].relative_to(args.root)) for a in audits.values()}),
         "modeling_sha256": sha256_file(model_path), "counts": counts,
         "unmatched_patch_reviews": unmatched})
 
@@ -207,10 +256,13 @@ def main(argv=None):
         if r["blocked_reasons"]:
             log.warning("Blocked %s %s: %s", r["source"], r["patient_id"], r["blocked_reasons"])
     if unmatched:
-        log.warning("%d patch reviews match no exported tissue tile (first: %s)", len(unmatched), unmatched[0])
-    log.info("%d of %d patients included (%d empty bags); %d model tiles, %d stored; written to %s",
-             counts["patients_included"], counts["patients_expected"], counts["empty_bags"],
-             counts["model_tiles"], counts["model_tiles_stored"], out)
+        log.warning("%d patch reviews match no tile of an exported slide (first: %s)", len(unmatched),
+                    unmatched[0])
+    log.info("%d of %d patients included (%d empty bags); %d model tiles, %d stored (%d accepted tiles "
+             "beyond the cap left out); %s; written to %s", counts["patients_included"],
+             counts["patients_expected"], counts["empty_bags"], counts["model_tiles"],
+             counts["model_tiles_stored"], counts["accepted_not_stored"],
+             "complete" if complete else "INCOMPLETE (some patients blocked)", out)
     return 1 if counts["patients_blocked"] else 0
 
 

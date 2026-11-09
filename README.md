@@ -32,8 +32,11 @@ Google Colab (pip):
 !pip install -r requirements.txt
 ```
 
-Both install everything in `requirements.txt`, including TIAToolbox 2.1.3 for tiling. TIAToolbox is large
-(it pulls in PyTorch) and pins versions of NumPy and PyTorch. On Colab, if you only need to download
+Both install everything in `requirements.txt`, including TIAToolbox 2.1.3 for tiling. The libraries that
+decode, resample or normalize pixels (NumPy, OpenCV, Pillow, h5py, scikit-image, OpenSlide's Python
+binding) are pinned to the versions the pilot ran with, so every machine that trains from a package uses the
+same code; every output also records the versions it was made with. TIAToolbox is large (it pulls in
+PyTorch) and pins versions of NumPy and PyTorch. On Colab, if you only need to download
 slides, `!pip install requests tqdm` is enough and leaves Colab's own packages alone.
 
 ## Downloading slides
@@ -126,9 +129,12 @@ one command and stops at the first step that fails:
 | register | `download.py --register` | Optional: verify slides copied from elsewhere and write their receipts |
 | masks | `tile.py --masks-only` | Optional: mask comparison panels for review; tiles nothing |
 | tile | `tile.py` | Read, score and record every tissue tile; store the pixels of up to `max_tiles_per_slide` per slide |
-| audit | `tile.py --audit` | Recheck every file and every stored tile's pixel hash, and save the result |
+| audit | `tile.py --audit` | Recheck every file, every stored tile's pixel hash and a sample of unstored tiles reread from the slide, and save the result |
 | qc | `qc.py` | Apply `configs/qc_policy.yaml`: accept / review / reject per tissue tile |
 | export | `export.py` | Apply human reviews and build `modeling_patches.csv` (needs a frozen policy) |
+
+Then, outside the shell script: `package.py` copies an export and its model tiles into a portable folder,
+and `combine.py` joins the packages of halves A and B (see "Packages for training").
 
 ```
 scripts/run_pipeline.sh --root ~/Bioinformatics/WSI/data --subset B                 # tile, audit, qc, export
@@ -150,7 +156,9 @@ tile.py     extraction command line: tiling, --masks-only, --audit
 qc.py       QC policy -> decisions
 review.py   human review records (patch, region, slide sign-off)
 export.py   modeling list with per-patient accounting
-loader.py   for training code: read tiles, Macenko per fold (not used by tiling)
+package.py  portable copy of an export with exactly its model tiles
+combine.py  join packages (halves A and B) into one model input
+loader.py   for training code: read tiles, patient bags, Macenko per fold (not used by tiling)
 ```
 
 ## Tiling slides into patches
@@ -196,10 +204,12 @@ python data_prep/tile.py --root ~/Bioinformatics/WSI/data --subset B --audit
 | Option | Meaning |
 |---|---|
 | `--root`, `--subset` | Same as download.py (required). Only downloaded and verified (or registered) slides are tiled. |
-| `--slides ID ...` | Only these slides, by slide ID or file-name prefix (for a pilot). |
+| `--slides ID ...` | Only these slides, by full slide ID or file-name prefix (for a pilot). A name that matches no slide in the subset stops the run (exit 2). For TCGA the slide ID is the full UUID; the file name starts with `TCGA-`. |
 | `--workers N` | Slides processed in parallel. Default: CPUs allocated to this container (its cgroup CPU quota, not the host's CPU count) minus one. Each worker uses one numerical thread. Benchmark a few slides before raising it. |
 | `--masks-only` | Compare masks without tiling: see below. |
 | `--audit` | Recheck tiled slides: see below. |
+| `--reread N` | With `--audit`: unstored tiles per slide to reread from the slide (default 5; 0 = none). |
+| `--check-sources` | With `--audit`: also rehash every slide file against its download receipt (reads every slide in full). |
 | `--sources`, `--config`, `--manifest`, `--log-dir`, `--dry-run` | As in download.py. |
 
 Ctrl-C stops the run; finished slides are kept and the next run continues with the rest. On a rerun,
@@ -222,7 +232,11 @@ not better.
 
 The rerun check only compares file sizes. `--audit` recomputes each slide's `.h5` and `_patches.csv`
 SHA-256 against its receipt, decodes every stored PNG and compares the hash of its pixels with the
-hash recorded when the tile was read from the slide. The result is saved as
+hash recorded when the tile was read from the slide. Tiles that were not stored (edge tiles, tissue tiles
+beyond the cap) reach the model only by rereading, so it also rereads a seeded sample of them per slide
+(`--reread`, default 5) and checks their recorded hashes; this needs the slides. It also checks each slide's
+mask and QC image against the hashes in its receipt, and with `--check-sources` rehashes the slide files
+against their download receipts. The result is saved as
 `state/tiling/<version>/audit_<subset>_<timestamp>.json`, with the config hash and code version.
 Exit code 1 means a mismatch or a selected slide that is not tiled. `export.py` only uses slides whose
 latest audit passed after they were tiled.
@@ -280,31 +294,42 @@ or failed the audit · `2` setup or config problem · `130` interrupted with Ctr
 ## Tile QC decisions
 
 `data_prep/qc.py` applies `configs/qc_policy.yaml` to the scores in each slide's `_patches.csv` and
-gives every tissue tile a decision, stored or not. Any reject reason outranks review.
+gives every tissue and edge tile a decision, stored or not. Any reject reason outranks review. Edge tiles
+(touching the mask, not more than half tissue) never pass automatically: the rules can reject them, and
+the rest go to review with reason `edge`, so a reviewer can reinstate interpretable tissue with a patch
+review. Nobody has to review every edge tile; unreviewed ones simply stay out of the model.
 
 | Setting | Value | Meaning |
 |---|---|---|
 | `max_glass_fraction` | 0.9 | **Reject** a tile whose glass fraction is above 0.9. |
 | `blank_fraction` | 0.99 | **Reject** a tile that is at least 99% near-white or near-black. |
+| `blur_reject_below` | 50 | **Reject** a tile whose blur score (Laplacian variance) is below this: out of focus. |
+| `blur_review_below` | 100 | **Review** a tile whose blur score is below this but not rejected. Between the two cutoffs, low scores can mean mild blur or sharp but smooth or pale tissue. With both cutoffs unset, a tile scoring exactly 0 (flat) still goes to review; a frozen policy must set both. |
 | `dark_mean_rgb` | 50 | **Review** a tile whose mean R, G and B are all below 50. |
-| `min_blur` | null | **Review** a tile whose Laplacian variance is below this. Off until the team sets it (tiling-v6 used 20): low values can mean blur or smooth, low-texture tissue. A tile with a blur score of exactly 0 (flat, no structure) always goes to review. |
 | `glass_review_above` | null | **Review** a tile whose glass fraction is above this (but not above `max_glass_fraction`). |
 | `pale_review_below`, `pale_value_above` | null, 180 | **Review** a pale, washed-out tile: mean saturation below the first and mean brightness above the second. |
 | `dark_fraction_review_above`, `green_fraction_review_above` | null, null | **Review** a tile with more dark pixels (folds, debris, ink) or green pixels (marker ink) than this. |
 | `frozen`, `reviewer`, `notes` | false, "", "" | Set `frozen: true`, who approved the values and how they were chosen, once the team agrees them. `export.py` only builds a modeling list from a frozen policy. |
+| `calibration_patients` | [] | The TCGA patients whose tiles were used to choose the cutoffs. Required when frozen; `export.py` checks they are TCGA patients in the fold map (never CPTAC). |
+| `require_signoff` | false | `true`: `export.py` blocks every slide without a sign-off (approve or exclude), and with it the slide's patient. |
+| `stored_tiles_only` | true | Model only tissue tiles whose pixels are stored: the seeded random sample of up to `max_tiles_per_slide` per slide, the same on every run. Training then needs only the `.h5` files, not the slides, on any machine. Accepted tiles beyond the cap are counted (`accepted_not_stored`) but left out. The sample is random and independent of QC and labels, so it subsamples without biasing; it is a dataset decision recorded with the frozen policy. |
 
-`null` turns a review rule off. These are pilot values for team review, not validated cutoffs. The policy
-uses no MGMT labels; one label-blind policy, frozen before training, serves every fold. Bump `version`
-when you change a value.
+`null` turns a review rule off. The blur cutoffs are pilot values (on the pilot slides, everything below 50
+was clearly out of focus, and sharp tissue started appearing above about 80); confirm them on a calibration
+set Couger labels as usable / unusable / uncertain, blind to MGMT status, before freezing. The policy uses
+no MGMT labels; one label-blind policy, frozen before training, serves every fold and both backbones, so
+they all see the same eligible tiles. Bump `version` when you change a value.
 
 ```
 python data_prep/qc.py --root ~/Bioinformatics/WSI/data --subset B
 ```
 
 It writes to `patches/<tiling version>/qc/<policy version>/`: `{source}/{patient_id}/{slide_id}_decisions.csv`
-(patch ID, `stored`, `h5_index`, grid index, coordinates, decision, reasons; one row per tissue tile),
-`slides_<subset>.csv` (counts and reasons per slide) and `policy_<subset>.json` (the policy, its hash
-and the tiling index it was applied to).
+(patch ID, role, `stored`, `h5_index`, grid index, coordinates, decision, reasons; one row per tissue or
+edge tile), `slides_<subset>.csv` (tissue decision counts and reasons per slide, edge counts separately),
+`review_queue_<subset>.csv` (every tissue tile sent to review or rejected, review first, with patch ID,
+coordinates and key scores: the reviewer's work list; edge tiles are left out of it) and
+`policy_<subset>.json` (the policy, its hash and the tiling index it was applied to).
 
 ## Human review
 
@@ -319,12 +344,13 @@ review.sign_off_slide(ROOT, "tiling-v7", "TCGA", slide_id, "approve", "Couger", 
 review.sign_off_slide(ROOT, "tiling-v7", "TCGA", slide_id, "exclude", "Couger", notes="almost unstained")
 ```
 
-- **Patch review:** accept, reject or review one tile, with a defect type.
+- **Patch review:** accept, reject or review one tile, with a defect type. Accepting an edge tile reinstates it.
 - **Artifact region:** a level-0 box around a technical artifact; every tissue tile it touches is rejected
   (or sent to review).
 - **Slide sign-off:** approve a slide, recording what was checked, or exclude it with a reason. Sign-off is
-  not required for every slide: it records which slides a person reviewed (for example the flagged ones
-  plus a random sample). An excluded slide counts as accounted for, so its patient is not blocked.
+  required for every slide only when the policy sets `require_signoff: true`; otherwise it records which
+  slides a person reviewed (for example the flagged ones plus a random sample). An excluded slide counts as
+  accounted for, so its patient is not blocked.
 
 Records are only ever appended; the latest record for a tile or slide wins. `export.py` applies them on
 top of the QC decision in this order: QC decision → artifact region → patch review → slide exclusion.
@@ -343,26 +369,63 @@ python data_prep/export.py --root ~/Bioinformatics/WSI/data --subset B
 A tile is included only if:
 
 - its slide was tiled with the current config, and the latest `--audit` covering it passed after tiling;
-- the QC policy is frozen and `qc.py` applied it;
-- after reviews, its decision is accept (review cases and excluded slides stay out);
+- the QC policy is frozen, its calibration patients are TCGA patients in the fold map, and `qc.py` applied it;
+- after reviews, its decision is accept (review cases and excluded slides stay out; an edge tile only if a
+  reviewer accepted it);
 - its patient is in the shared fold map (`manifests/patient_folds.csv`) and every one of the patient's
-  slides in the subset is accounted for: exported, or excluded at sign-off.
+  slides in the subset is accounted for: exported, or excluded at sign-off (and, with `require_signoff`,
+  every exported slide is approved at sign-off).
 
 Accounting is per patient: a patient with a missing, failed or unaudited slide is listed as blocked, with
 the reason, without blocking anyone else. A patient whose accepted tiles are all gone is listed as an
-empty bag. One modeling list serves every fold: each row carries the patient's fold. Accepted tiles
-beyond the tiling cap are included with `stored` False and are reread from the slide.
+empty bag. One modeling list serves every fold: each row carries the patient's fold. With
+`stored_tiles_only` (the default), accepted tiles beyond the tiling cap are left out and counted; edge tiles
+a reviewer accepted are included (`stored` False until `package.py` stores them). The export is
+**complete** when no patient is blocked; `export_settings.json` records it, and `package.py`, `combine.py`
+and the loader refuse an incomplete export unless a partial one is asked for (a preview).
 
 It writes `patches/<tiling version>/export/<policy version>/<subset>_<UTC time>/`: `modeling_patches.csv`
 (one row per tile: patient, slide, fold, patch ID, coordinates, `stored`, `.h5` and row, slide path,
 pixel hash, and what decided it), `patient_index.csv` (expected, exported and excluded slides, decision
-counts, model tiles, empty bag, blocked reasons), `slide_status.csv` and `export_settings.json` (hashes
-of the policy, fold map, review files, audits and the modeling list). Exit code `1` means some patients
-are blocked (the outputs are still written); `2` means a setup problem such as an unfrozen policy.
+counts, model tiles, reinstated edge tiles, empty bag, blocked reasons), `slide_status.csv` and
+`export_settings.json` (the policy and the hashes of every input: review files, audits, the QC record, the
+fold map and the modeling list, with paths relative to the data folder so they check on another machine).
+Exit code `1` means some patients are blocked (the outputs are still written); `2` means a setup problem
+such as an unfrozen policy.
+
+An export is tied to its inputs: `loader.load_modeling` refuses it once any recorded input has changed or a
+review or audit file has been added since (for example a new review record). Rerun `export.py` after
+recording reviews.
 
 `manifests/patient_folds.csv` is the shared fold map for all 234 patients: the 151 TCGA patients in five
 folds (MGMT-stratified, seed 42; labels not stored here) and the 83 CPTAC patients marked `external`.
 Both subsets and both backbones use the same map.
+
+## Packages for training
+
+Training runs on several machines, so it reads from a **package**: a portable copy of one export with
+exactly its model tiles, built on the processing machine:
+
+```
+python data_prep/package.py --export <root>/patches/tiling-v7/export/qc-v1/B_<time> --out ~/packages/B_qc-v1
+python data_prep/combine.py --parts A=~/packages/A_qc-v1 B=~/packages/B_qc-v1 --out ~/packages/AB_qc-v1
+```
+
+- `package.py` refuses a stale export (an input changed since) or an incomplete one (blocked patients;
+  `--allow-partial` for a preview). It copies each model tile's PNG bytes unchanged into one `.h5` per slide
+  under `tiles/`, reads any model tile that was not stored (an accepted edge tile) from its slide, checks
+  every tile against its recorded pixel hash, and writes `package_manifest.json` with the SHA-256 and size
+  of every file, the settings and the library versions. The output folder must be new.
+- `combine.py` joins packages made with the same tiling config, code version, QC policy and fold map, with
+  no patient in two parts. It is complete when every part is complete and together they account for all
+  234 patients; otherwise it is refused unless `--allow-partial`. It copies no tiles: its rows point at
+  each part's folder (relative paths), so keep the parts next to the combined folder, for example all in
+  one `packages/` folder.
+
+Store packages on OneDrive (or any shared drive) and copy them to local disk on the training machine:
+reading thousands of random tiles per epoch through a sync client is slow. After copying, run
+`loader.verify_package(FOLDER)` once to rehash every file. Training then needs only the package, h5py,
+Pillow, NumPy and pandas: no slides and no OpenSlide.
 
 ## Reading tiles for training
 
@@ -370,16 +433,32 @@ Both subsets and both backbones use the same map.
 
 ```python
 import loader
-tiles = loader.with_roles(loader.load_modeling(EXPORT_DIR), fold=0)   # role: train, validation, external
-reader = loader.TileReader(ROOT)          # one per data-loader worker process
-rgb = reader.read(tiles.iloc[0])          # stored tiles from the .h5, others from the slide
+tiles = loader.with_roles(loader.load_modeling(FOLDER), fold=0)   # role: train, validation, external
+reader = loader.TileReader(FOLDER)        # one per data-loader worker process
+bag = loader.training_sample(tiles, patient_id, epoch)          # 64 tiles for this patient and epoch
+images = reader.read_bag(bag)
+for chunk in loader.evaluation_batches(tiles, patient_id, 64):  # every tile once, for evaluation
+    images = reader.read_bag(chunk)
 
-normalizer, record = loader.fit_fold_normalizer(EXPORT_DIR, 0, reference_patch_id, reader)
+normalizer, record = loader.fit_fold_normalizer(FOLDER, 0, reference_patch_id, reader)
 rgb = loader.normalize_tile(normalizer, rgb, patch_id, "logs/macenko_failures_fold0.csv")
 ```
 
-Every read checks the tile's pixel hash against the one recorded at tiling. Tiles beyond the cap need the
-slides under `<root>/raw/`; stored tiles need only the `.h5` files. Each process should create its own
+`FOLDER` is a package or a combined folder (or, on the processing machine, an export folder). The
+calls are the same for all three.
+
+- **Training bags:** `training_sample` draws `count` tiles (default 64) for one training patient and epoch,
+  round robin over the patient's slides and, within a slide, over 8 × 8-tile spatial blocks, so a bag
+  covers the whole tissue rather than one region. The draw depends only on the seed, the epoch and the
+  patient, so both backbones get the same tile IDs. A patient with fewer tiles gets all of them, then
+  the rest again with replacement. It refuses a patient who is not a training patient for the fold.
+- **Evaluation:** `evaluation_batches` yields every tile of a patient exactly once, in a fixed order.
+
+`load_modeling` first checks the folder: for an export, that nothing it recorded has changed
+(`loader.stale_inputs` lists what did); for a package or combination, the modeling list's hash and every
+file's size (`loader.verify_package` rehashes everything); and that it is complete, unless
+`allow_partial=True`. Every read checks the tile's pixel hash against the one recorded at tiling.
+`TileReader` keeps at most 16 files open (least recently used). Each process should create its own
 `TileReader`: HDF5 and slide handles are not shared across processes.
 
 Macenko stain normalization happens here, at training time, not in tiling: its reference has to come from
@@ -400,8 +479,12 @@ python tests/run_tests.py --keep    # keep the temporary data folder for inspect
 ```
 
 It covers registering copies, tiling, the resolution limit, the mask floor, lossless storage, the cap,
-rereading tiles, the audit catching a changed pixel, the config guards, QC rules, reviews, the export
-gates and accounting, the loader, Macenko, and `run_pipeline.sh`. Set `GBM_PATCHING_DIR` to a folder with
+rereading tiles, the audit (rereads of unstored tiles, slide rehashing, a changed pixel or QC image caught),
+the config and `--slides` guards, QC rules (blur tiers, edge tiles, frozen-policy requirements, the review
+queue), reviews (including reinstating an edge tile), the export gates and accounting (calibration
+patients, required sign-off, stored tiles only, completeness), stale export detection, packages (an edge
+tile reread from its slide, a stale or incomplete export refused, a damaged file caught), combining
+halves A and B, the patient bag sampler, the loader, Macenko, and `run_pipeline.sh`. Set `GBM_PATCHING_DIR` to a folder with
 the team's `gbm_patching.py` to also check that both tilers read identical pixels.
 
 ## Repository layout
@@ -415,7 +498,9 @@ data_prep/tile.py       tile extraction, mask comparison, integrity audit
 data_prep/qc.py         apply the tile QC policy
 data_prep/review.py     human review records
 data_prep/export.py     modeling list with per-patient accounting
-data_prep/loader.py     read tiles and Macenko per fold, for training code
+data_prep/package.py    portable copy of an export with its model tiles
+data_prep/combine.py    join packages (halves A and B)
+data_prep/loader.py     read tiles, patient bags and Macenko per fold, for training code
 scripts/run_pipeline.sh run the steps in order for one subset
 configs/tiling.yaml     tiling settings
 configs/qc_policy.yaml  tile QC cutoffs
