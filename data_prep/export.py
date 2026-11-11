@@ -7,7 +7,7 @@ A tile is in modeling_patches.csv only if all of these hold:
   - its slide was tiled with the current config and CODE_VERSION, and the latest tile.py --audit
     covering the slide passed after it was tiled;
   - the QC policy is frozen (qc_policy.yaml: frozen, reviewer, notes, calibration patients, blur
-    cutoffs), its calibration patients are TCGA patients in the fold map, and qc.py applied it;
+    cutoffs), its calibration patients are on the TCGA training side of its validation fold, and qc.py applied it;
   - after reviews (review.py), its decision is accept; review cases and slide exclusions stay out.
     Edge tiles are never accepted by QC, so an edge tile is in only if a reviewer accepted it;
   - its patient is in the shared fold map, and every one of the patient's slides in the subset is
@@ -16,8 +16,8 @@ A tile is in modeling_patches.csv only if all of these hold:
 Accounting is per patient: a patient with a missing, failed or unaudited slide is listed as blocked,
 without blocking anyone else. A patient with no accepted tiles is listed as an empty bag.
 
-One modeling list serves every fold: each row carries the patient's fold, and loader.py marks rows
-train / validation / external for the fold being trained. With stored_tiles_only: true in the policy
+Each modeling list is bound to the validation fold used for QC calibration. Each row carries the
+patient's fold, and loader.py marks rows train / validation / external for that run. With stored_tiles_only: true in the policy
 (the default), the model uses only tissue tiles whose pixels are stored (the seeded per-slide sample of
 max_tiles_per_slide), so training needs only the .h5 files; accepted tiles beyond the cap are counted
 but left out. Edge tiles a reviewer accepted are always included; package.py stores their pixels.
@@ -127,19 +127,25 @@ def main(argv=None):
             raise RuntimeError(f"QC policy {policy['version']} is not frozen; set frozen, reviewer "
                                f"and notes in {policy_path} once the team agrees the cutoffs")
         folds_path = args.folds.expanduser().resolve()
+        folds_sha = sha256_file(folds_path)
         folds = read_folds(folds_path)
-        not_training = [p for p in policy["calibration_patients"] if ("TCGA", p) not in folds]
-        if not_training:
-            raise RuntimeError(f"calibration patients must be TCGA patients in the fold map: {not_training}")
+        if sha256_file(folds_path) != folds_sha:
+            raise RuntimeError("fold map changed while reading")
+        qc.validate_calibration(policy, folds)
         _, manifest = load_manifest(args.manifest.expanduser().resolve())
         all_files = manifest["files"]
         expected = split.select_files(all_files, args.subset, split.build_patient_split(all_files))
         reviews = review.load_reviews(args.root, version)
         audits = latest_audits(args.root, version, args.subset)
         record = qc_record(args.root, version, policy["version"], args.subset)
-        if not record.exists() or json.loads(record.read_text())["policy_sha256"] != policy_sha:
-            raise RuntimeError(f"run qc.py with policy {policy['version']} first (or again: the "
-                               f"policy file changed since)")
+        applied = json.loads(record.read_text()) if record.exists() else {}
+        index_path = args.root / "patches" / version / f"index_{args.subset}.csv"
+        if (applied.get("policy_sha256") != policy_sha
+                or applied.get("validation_fold") != policy["validation_fold"]
+                or applied.get("folds_sha256") != folds_sha
+                or applied.get("index_sha256") != sha256_file(index_path)):
+            raise RuntimeError(f"run qc.py with policy {policy['version']}, the current tiling index "
+                               "and the same fold map before exporting")
     except (OSError, RuntimeError, ValueError, KeyError, yaml.YAMLError) as error:
         log.error("%s", error)
         return 2
@@ -201,7 +207,10 @@ def main(argv=None):
             for d in read_rows(qc.decisions_path(args.root, version, policy["version"], row)):
                 tile = tiles[d["patch_id"]]
                 seen_ids.add(d["patch_id"])
-                decision, _, decided_by = review.resolve(tile, d["decision"], d["reasons"], reviews)
+                if qc.read_scores(tile)[1]:
+                    decision, decided_by = "reject", "qc"
+                else:
+                    decision, _, decided_by = review.resolve(tile, d["decision"], d["reasons"], reviews)
                 if tile["role"] == "tissue":
                     patients[key][decision] += 1
                     patients[key]["tissue_tiles"] += 1
@@ -246,7 +255,8 @@ def main(argv=None):
         "subset": args.subset, "complete": complete, "created_at_utc": stamp.isoformat(),
         "tiling_version": version, "stored_tiles_only": policy["stored_tiles_only"],
         "config_sha256": config_sha, "code_version": CODE_VERSION, "policy": policy,
-        "policy_sha256": policy_sha, "folds_file": folds_path.name, "folds_sha256": sha256_file(folds_path),
+        "validation_fold": policy["validation_fold"], "policy_sha256": policy_sha,
+        "folds_file": folds_path.name, "folds_sha256": folds_sha,
         "inputs": input_hashes(args.root, version, policy["version"], args.subset, folds_path),
         "audits_used": sorted({str(a[2].relative_to(args.root)) for a in audits.values()}),
         "modeling_sha256": sha256_file(model_path), "counts": counts,

@@ -251,7 +251,7 @@ def main():
                                                             "--log-dir", str(logs)]) == 0)
     base = {k: "0" for k in ("near_white_fraction", "near_black_fraction", "dark_fraction", "green_fraction",
                              "glass_fraction")}
-    base.update(mean_r="200", mean_g="150", mean_b="200", mean_saturation="80", mean_value="200",
+    base.update(mean_r="200", mean_g="150", mean_b="200", mean_saturation="80", mean_value="200", gray_median="165",
                 laplacian_variance="300")
     default_policy = qc.load_policy()[0]
     unset = {**default_policy, "blur_reject_below": None, "blur_review_below": None}
@@ -261,6 +261,13 @@ def main():
     check("qc: blur below the reject cutoff rejected, below the review cutoff reviewed",
           qc.decide({**base, "laplacian_variance": "30"}, default_policy) == ("reject", "blur")
           and qc.decide({**base, "laplacian_variance": "70"}, default_policy) == ("review", "low_blur"))
+    check("qc: malformed, non-finite and out-of-range scores reject",
+          all(qc.decide({**base, **bad}, default_policy)[0] == "reject" for bad in (
+              {"laplacian_variance": "nan"}, {"laplacian_variance": "inf"}, {"laplacian_variance": "-1"},
+              {"mean_value": "256"}, {"glass_fraction": "1.01"}, {"dark_fraction": None},
+              {"mean_saturation": ""}, {"mean_g": "bad"}))
+          and qc.decide({k: v for k, v in base.items() if k != "mean_b"}, default_policy)
+              == ("reject", "invalid_score:mean_b"))
     check("qc: an edge tile never passes automatically",
           qc.decide({**base, "role": "edge"}, default_policy) == ("review", "edge")
           and qc.decide({**base, "role": "edge", "glass_fraction": "0.95"}, default_policy)[0] == "reject")
@@ -294,12 +301,21 @@ def main():
     check("export: refuses an unfrozen policy", export.main(common_args[:4] + ["--manifest", str(test_manifest),
                                                                                "--log-dir", str(logs)]) == 2)
     calibration = f'["{row["patient_id"]}"]'
+    folds = common.read_folds()
+    calibration_fold = int(folds[("TCGA", row["patient_id"])])
+    b_fold = int(folds[("TCGA", picks["single_b"]["patient_id"])])
+    validation_fold = next(f for f in range(5) if f not in (calibration_fold, b_fold))
+    leaking = policy("p_leak", frozen="true", reviewer='"tests"', notes='"x"',
+                     validation_fold=calibration_fold, calibration_patients=calibration)
+    check("qc: refuses its own held-out patients for calibration",
+          qc.main(common_args[:4] + ["--policy", str(leaking), "--log-dir", str(logs)]) == 2)
     check("export: calibration patients must be TCGA patients in the fold map", export.main(
         ["--root", str(root), "--subset", "full", "--manifest", str(test_manifest), "--log-dir", str(logs),
          "--policy", str(policy("p_cptac", frozen="true", reviewer='"tests"', notes='"x"',
+                                validation_fold=validation_fold,
                                 calibration_patients=f'["{picks["coarse_ok"]["patient_id"]}"]'))]) == 2)
     frozen = policy("p_frozen", version="qc-test", frozen="true", reviewer='"tests"', notes='"synthetic slides"',
-                    calibration_patients=calibration)
+                    validation_fold=validation_fold, calibration_patients=calibration)
     qc_args = ["--root", str(root), "--subset", "full", "--log-dir", str(logs), "--policy", str(frozen)]
     export_args = ["--root", str(root), "--subset", "full", "--manifest", str(test_manifest),
                    "--log-dir", str(logs), "--policy", str(frozen)]
@@ -362,10 +378,12 @@ def main():
     check("loader: an incomplete export is refused unless a partial one is intended",
           _raises(lambda: loader.load_modeling(out)))
     tiles = loader.load_modeling(out, allow_partial=True)
-    roles0, roles1 = loader.with_roles(tiles, 0), loader.with_roles(tiles, 1)
-    check("loader: roles per fold", set(roles0[roles0.patient_id == row["patient_id"]].role) == {"validation"}
-          and set(roles1[roles1.patient_id == row["patient_id"]].role) == {"train"}
-          and set(roles1[roles1.source == "CPTAC"].role) == {"external"})
+    roles = loader.with_roles(tiles, validation_fold)
+    check("loader: roles use the fold recorded by export",
+          set(roles[roles.patient_id == row["patient_id"]].role) == {"train"}
+          and set(roles[roles.source == "CPTAC"].role) == {"external"})
+    check("loader: a different validation fold is refused",
+          _raises(lambda: loader.with_roles(tiles, calibration_fold)))
     with loader.TileReader(root) as reader:
         rgb = reader.read(tiles.iloc[0])
         check("loader: stored tile read and hash-checked", rgb.shape == (224, 224, 3))
@@ -376,8 +394,8 @@ def main():
         own = tiles[tiles.patient_id == row["patient_id"]]
         ref_id = max(own.patch_id, key=lambda p: stained.get(p, 0))   # a well-stained tile
         check("macenko: reference from the fold's own validation patient refused",
-              _raises(lambda: loader.fit_fold_normalizer(out, 0, ref_id, reader)))
-        normalizer, record = loader.fit_fold_normalizer(out, 1, ref_id, reader)
+              _raises(lambda: loader.fit_fold_normalizer(out, calibration_fold, ref_id, reader)))
+        normalizer, record = loader.fit_fold_normalizer(out, validation_fold, ref_id, reader)
         normed = loader.normalize_tile(normalizer, reader.read(tiles.iloc[3]), tiles.iloc[3].patch_id,
                                        work / "norm_failures.csv")
         check("macenko: fitted on a training tile and applied",
@@ -398,7 +416,7 @@ def main():
           and _raises(lambda: loader.load_modeling(out, allow_partial=True)),
           changes)
     signoff_policy = policy("p_signoff", version="qc-signoff", frozen="true", reviewer='"tests"', notes='"x"',
-                            calibration_patients=calibration, require_signoff="true")
+                            validation_fold=validation_fold, calibration_patients=calibration, require_signoff="true")
     qc.main(["--root", str(root), "--subset", "full", "--log-dir", str(logs), "--policy", str(signoff_policy)])
     export.main(["--root", str(root), "--subset", "full", "--manifest", str(test_manifest), "--log-dir", str(logs),
                  "--policy", str(signoff_policy)])
@@ -503,9 +521,7 @@ def main():
     check("loader: an incomplete combination is refused unless a partial one is intended",
           _raises(lambda: loader.load_modeling(combined)))
 
-    folds = common.read_folds()
-    b_fold = int(folds[("TCGA", b_row["patient_id"])])
-    roles = loader.with_roles(tiles_ab, (b_fold + 1) % 5)
+    roles = loader.with_roles(tiles_ab, validation_fold)
     bag = loader.training_sample(roles, b_row["patient_id"], epoch=0)
     again = loader.training_sample(roles, b_row["patient_id"], epoch=0)
     other = loader.training_sample(roles, b_row["patient_id"], epoch=1)
@@ -513,8 +529,9 @@ def main():
           len(bag) == 64 and list(bag.patch_id) == list(again.patch_id) and list(bag.patch_id) != list(other.patch_id))
     small = loader.training_sample(roles, b_row["patient_id"], epoch=0, count=10)
     check("sampler: no repeats when the patient has enough tiles", small.patch_id.nunique() == 10)
-    check("sampler: a validation patient is refused", _raises(lambda: loader.training_sample(
-        loader.with_roles(tiles_ab, b_fold), b_row["patient_id"], epoch=0)))
+    check("sampler: a validation patient is refused",
+          _raises(lambda: loader.training_sample(
+              roles.assign(role="validation"), b_row["patient_id"], epoch=0)))
     seen = [pid for chunk in loader.evaluation_batches(tiles_ab, b_row["patient_id"], 16) for pid in chunk.patch_id]
     check("sampler: evaluation visits every tile of the patient once",
           sorted(seen) == sorted(tiles_ab[tiles_ab.patient_id == b_row["patient_id"]].patch_id))

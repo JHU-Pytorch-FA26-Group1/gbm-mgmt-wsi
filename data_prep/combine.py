@@ -29,7 +29,7 @@ import loader
 from common import DEFAULT_FOLDS, read_folds, read_rows, sha256_file, write_rows
 from download import DEFAULT_LOG_DIR, setup_logging, write_json
 
-SHARED = ("tiling_version", "config_sha256", "code_version", "policy_sha256", "folds_sha256")
+SHARED = ("tiling_version", "config_sha256", "code_version", "policy_sha256", "folds_sha256", "validation_fold")
 
 log = logging.getLogger("combine")
 
@@ -64,6 +64,7 @@ def main(argv=None):
             folder = Path(folder).expanduser().resolve()
             if loader.folder_kind(folder) != "package":
                 raise RuntimeError(f"{name}: not a package folder: {folder}")
+            loader.modeling_fold(folder)
             problems = loader.package_problems(folder)
             if problems:
                 raise RuntimeError(f"{name}: {'; '.join(problems[:3])}")

@@ -117,6 +117,7 @@ def main(argv=None):
         if loader.folder_kind(export_dir) != "export":
             raise RuntimeError(f"not an export folder: {export_dir}")
         settings = json.loads((export_dir / "export_settings.json").read_text())
+        loader.modeling_fold(export_dir)
         stale = loader.stale_inputs(export_dir)
         if stale:
             raise RuntimeError(f"export is stale ({'; '.join(stale[:3])}); rerun export.py")
@@ -167,7 +168,7 @@ def main(argv=None):
             "complete": settings["complete"], "tiling_version": settings["tiling_version"],
             "config_sha256": settings["config_sha256"], "code_version": settings["code_version"],
             "policy_version": settings["policy"]["version"], "policy_sha256": settings["policy_sha256"],
-            "folds_sha256": settings["folds_sha256"],
+            "folds_sha256": settings["folds_sha256"], "validation_fold": settings["validation_fold"],
             "export_settings_sha256": sha256_file(export_dir / "export_settings.json"),
             "counts": {"slides": n_slides, "tiles": n_tiles, "tiles_reread_from_slides": n_reread},
             "library_versions": slides.library_versions(),

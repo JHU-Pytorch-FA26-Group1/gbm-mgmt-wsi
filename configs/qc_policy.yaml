@@ -7,18 +7,19 @@
 # rejected by the rules below or sent to review, and a reviewer can accept one.
 version: qc-v1
 frozen: false
+validation_fold: null      # set to the held-out TCGA fold (0–4) before calibration/freeze
 reviewer: ""               # who approved the frozen policy
 notes: ""                  # how the cutoffs were chosen (e.g. which pilot slides were reviewed)
-calibration_patients: []   # TCGA patients whose tiles were used to choose the cutoffs (never CPTAC)
+calibration_patients: []   # TCGA patients whose tiles were used to choose the cutoffs (training side of validation_fold only)
 require_signoff: false     # true: export.py blocks every slide without a sign-off (approve or exclude)
 stored_tiles_only: true    # model only tissue tiles whose pixels are stored (the seeded per-slide sample
                            # of max_tiles_per_slide), so training needs only the .h5 files, not the slides
 # Reject:
 max_glass_fraction: 0.9    # more than this fraction of the tile is uncolored glass
 blank_fraction: 0.99       # at least this fraction is near-white, or near-black
-blur_reject_below: 50      # Laplacian variance below this: out of focus (pilot value)
+blur_reject_below: 50      # Laplacian variance below this: reject for focus (unvalidated pilot value)
 # Review (null = off):
-blur_review_below: 100     # Laplacian variance below this (and not rejected): check focus (pilot value)
+blur_review_below: 100     # Laplacian variance below this (and not rejected): check focus (unvalidated pilot value)
 dark_mean_rgb: 50          # mean R, G and B all below this
 glass_review_above: null   # glass fraction above this (but not above max_glass_fraction)
 pale_review_below: null    # mean saturation below this ...
