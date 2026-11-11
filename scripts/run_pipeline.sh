@@ -16,6 +16,8 @@
 #                     audit     recheck every file and pixel hash (tile.py --audit)
 #                     qc        apply configs/qc_policy.yaml (qc.py)
 #                     export    build modeling_patches.csv (export.py; needs a frozen policy)
+#   --policy FILE     QC policy for qc and export [GBM_POLICY]
+#   --folds FILE      shared patient fold map for qc and export [GBM_FOLDS]
 #   --workers N       slides processed in parallel (default: tile.py's, from the CPU allocation) [GBM_WORKERS]
 #   --python CMD      Python to use (default: python from the active environment) [GBM_PYTHON]
 #   --dry-run         print the commands without running them
@@ -31,6 +33,8 @@ root="${GBM_ROOT:-}"
 subset="${GBM_SUBSET:-}"
 steps="${GBM_STEPS:-tile,audit,qc,export}"
 workers="${GBM_WORKERS:-}"
+policy="${GBM_POLICY:-}"
+folds="${GBM_FOLDS:-}"
 python="${GBM_PYTHON:-python}"
 dry_run=0
 
@@ -41,6 +45,8 @@ while [[ $# -gt 0 ]]; do
         --root) root="$2"; shift 2 ;;
         --subset) subset="$2"; shift 2 ;;
         --steps) steps="$2"; shift 2 ;;
+        --policy) policy="$2"; shift 2 ;;
+        --folds) folds="$2"; shift 2 ;;
         --workers) workers="$2"; shift 2 ;;
         --python) python="$2"; shift 2 ;;
         --dry-run) dry_run=1; shift ;;
@@ -68,6 +74,9 @@ done
 worker_args=()
 [[ -n "$workers" ]] && worker_args=(--workers "$workers")
 common=(--root "$root" --subset "$subset")
+qc_args=()
+[[ -n "$policy" ]] && qc_args+=(--policy "$policy")
+[[ -n "$folds" ]] && qc_args+=(--folds "$folds")
 
 build_command() {   # sets the array `cmd` for one step
     case "$1" in
@@ -75,8 +84,8 @@ build_command() {   # sets the array `cmd` for one step
         masks) cmd=("$python" "$repo/data_prep/tile.py" "${common[@]}" --masks-only ${worker_args[@]+"${worker_args[@]}"}) ;;
         tile) cmd=("$python" "$repo/data_prep/tile.py" "${common[@]}" ${worker_args[@]+"${worker_args[@]}"}) ;;
         audit) cmd=("$python" "$repo/data_prep/tile.py" "${common[@]}" --audit ${worker_args[@]+"${worker_args[@]}"}) ;;
-        qc) cmd=("$python" "$repo/data_prep/qc.py" "${common[@]}") ;;
-        export) cmd=("$python" "$repo/data_prep/export.py" "${common[@]}") ;;
+        qc) cmd=("$python" "$repo/data_prep/qc.py" "${common[@]}" "${qc_args[@]}") ;;
+        export) cmd=("$python" "$repo/data_prep/export.py" "${common[@]}" "${qc_args[@]}") ;;
     esac
 }
 

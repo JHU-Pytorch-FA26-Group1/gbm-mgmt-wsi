@@ -310,15 +310,20 @@ review. Nobody has to review every edge tile; unreviewed ones simply stay out of
 | `pale_review_below`, `pale_value_above` | null, 180 | **Review** a pale, washed-out tile: mean saturation below the first and mean brightness above the second. |
 | `dark_fraction_review_above`, `green_fraction_review_above` | null, null | **Review** a tile with more dark pixels (folds, debris, ink) or green pixels (marker ink) than this. |
 | `frozen`, `reviewer`, `notes` | false, "", "" | Set `frozen: true`, who approved the values and how they were chosen, once the team agrees them. `export.py` only builds a modeling list from a frozen policy. |
-| `calibration_patients` | [] | The TCGA patients whose tiles were used to choose the cutoffs. Required when frozen; `export.py` checks they are TCGA patients in the fold map (never CPTAC). |
+| `validation_fold` | null | Set the held-out TCGA fold (0–4). Required for a frozen policy. |
+| `calibration_patients` | [] | TCGA patients whose tiles informed the cutoffs. For the chosen fold, each must be in the training partition. Required when frozen. |
 | `require_signoff` | false | `true`: `export.py` blocks every slide without a sign-off (approve or exclude), and with it the slide's patient. |
 | `stored_tiles_only` | true | Model only tissue tiles whose pixels are stored: the seeded random sample of up to `max_tiles_per_slide` per slide, the same on every run. Training then needs only the `.h5` files, not the slides, on any machine. Accepted tiles beyond the cap are counted (`accepted_not_stored`) but left out. The sample is random and independent of QC and labels, so it subsamples without biasing; it is a dataset decision recorded with the frozen policy. |
 
-`null` turns a review rule off. The blur cutoffs are pilot values (on the pilot slides, everything below 50
-was clearly out of focus, and sharp tissue started appearing above about 80); confirm them on a calibration
-set Couger labels as usable / unusable / uncertain, blind to MGMT status, before freezing. The policy uses
-no MGMT labels; one label-blind policy, frozen before training, serves every fold and both backbones, so
-they all see the same eligible tiles. Bump `version` when you change a value.
+`null` turns an optional review rule off. Treat the blur cutoffs of 50 and 100 as candidates. Use
+`review_qc.ipynb` to inspect accepted and flagged training tiles, including pale and low-texture
+tissue, and to record MGMT-blind reviewer observations. Compare retention by slide and patient and
+save the reviewed patients and threshold rationale in the policy. A missing, malformed, nonfinite,
+or out-of-range QC score produces an `invalid_score` rejection. Re-audit the affected tile if needed.
+
+Use a distinct policy version for each validation fold. Apply the same frozen policy to both A and
+B for that fold and both model backbones. QC and export record the fold and fold-map hash. Existing
+tiles and stored scores can be reused. Bump the policy version whenever the settings change.
 
 ```
 python data_prep/qc.py --root ~/Bioinformatics/WSI/data --subset B
@@ -369,7 +374,7 @@ python data_prep/export.py --root ~/Bioinformatics/WSI/data --subset B
 A tile is included only if:
 
 - its slide was tiled with the current config, and the latest `--audit` covering it passed after tiling;
-- the QC policy is frozen, its calibration patients are TCGA patients in the fold map, and `qc.py` applied it;
+- the QC policy is frozen, its calibration patients are TCGA training patients for its validation fold, and `qc.py` applied it with the same fold map and tiling index;
 - after reviews, its decision is accept (review cases and excluded slides stay out; an edge tile only if a
   reviewer accepted it);
 - its patient is in the shared fold map (`manifests/patient_folds.csv`) and every one of the patient's
@@ -378,7 +383,7 @@ A tile is included only if:
 
 Accounting is per patient: a patient with a missing, failed or unaudited slide is listed as blocked, with
 the reason, without blocking anyone else. A patient whose accepted tiles are all gone is listed as an
-empty bag. One modeling list serves every fold: each row carries the patient's fold. With
+empty bag. Each modeling list serves its recorded validation fold. The loader checks the fold when assigning patient roles. With
 `stored_tiles_only` (the default), accepted tiles beyond the tiling cap are left out and counted; edge tiles
 a reviewer accepted are included (`stored` False until `package.py` stores them). The export is
 **complete** when no patient is blocked; `export_settings.json` records it, and `package.py`, `combine.py`
