@@ -5,6 +5,8 @@ slide sign-off) go through data_prep/review.py, so export.py applies them; the c
 a separate record of what was viewed while choosing cutoffs.
 """
 import csv
+import html
+import io
 import json
 import logging
 import math
@@ -351,10 +353,13 @@ class TilePager:
     """Pages through matched tiles `per_page` at a time. Montage numbers restart at 0 on each page, and
     current() is the page on show, for the record cells. show() adds Previous / Next buttons."""
 
-    def __init__(self, session, tiles, per_page=12, page=0, thumbnails=True):
+    def __init__(self, session, tiles, per_page=12, page=0, thumbnails=True, columns=4, tile_size=3.5):
         if per_page < 1:
             raise ValueError("N must be positive.")
+        if columns < 1 or tile_size <= 0:
+            raise ValueError("COLUMNS must be at least 1 and TILE_SIZE positive.")
         self.session, self.tiles, self.per_page, self.thumbnails = session, tiles, per_page, thumbnails
+        self.columns, self.tile_size = columns, tile_size
         self.pages = max(1, math.ceil(len(tiles) / per_page))
         self.page = 0
         self.go(page)
@@ -373,23 +378,30 @@ class TilePager:
         """Patients on any page shown: each belongs in the policy's calibration_patients."""
         return sorted(self.seen)
 
+    def header(self):
+        """Page line and the patients viewed so far (marks the current page's patients as viewed)."""
+        self.seen.update(patch["patient_id"] for patch in self.current())
+        return (f"Page {self.page + 1} of {self.pages}  ({len(self.tiles):,} tiles)",
+                f"Patients viewed (calibration_patients): {self.viewed_patients()}")
+
     def render(self):
-        """Show the current page: montage, table and (optionally) thumbnails."""
+        """Show the current page (montage, table, thumbnails) as ordinary cell output."""
         from IPython.display import display
+        for line in self.header():
+            print(line)
         sample = self.current()
-        self.seen.update(patch["patient_id"] for patch in sample)
-        print(f"Page {self.page + 1} of {self.pages}  ({len(self.tiles):,} tiles)")
-        print("Patients viewed (calibration_patients):", self.viewed_patients())
         if not sample:
             print("No matches. Try clearing a filter or choosing another patient.")
             return
-        show_montage(self.session, sample)
+        show_montage(self.session, sample, self.columns, self.tile_size)
         display(sample_table(sample))
         if self.thumbnails:
             show_thumbnails(self.session, sample)
 
     def show(self):
-        """Previous / Next buttons above the current page; without ipywidgets, the current page only."""
+        """Previous / Next buttons above the current page; without ipywidgets, the current page only.
+        Each page is drawn into image and HTML widgets (not captured output), so it replaces the last
+        page in every notebook front end."""
         try:
             import ipywidgets as widgets
         except ImportError:
@@ -399,14 +411,29 @@ class TilePager:
         from IPython.display import display
         previous_button = widgets.Button(description="◀ Previous")
         next_button = widgets.Button(description="Next ▶")
-        out = widgets.Output()
+        info = widgets.HTML()
+        montage = widgets.Image(format="png", layout=widgets.Layout(max_width="100%"))
+        table = widgets.HTML()
+        thumbnails = widgets.Image(format="png", layout=widgets.Layout(max_width="100%"))
 
         def draw():
             previous_button.disabled = self.page == 0
             next_button.disabled = self.page >= self.pages - 1
-            with out:
-                out.clear_output(wait=True)
-                self.render()
+            lines = list(self.header())
+            sample = self.current()
+            try:
+                if sample:
+                    fig, errors = montage_figure(self.session, sample, self.columns, self.tile_size)
+                    montage.value = figure_png(fig)
+                    lines += errors
+                    table.value = sample_table(sample).to_html(index=True)
+                    thumbnails.value = figure_png(thumbnails_figure(self.session, sample)) if self.thumbnails else b""
+                else:
+                    lines.append("No matches. Try clearing a filter or choosing another patient.")
+                    montage.value, table.value, thumbnails.value = b"", "", b""
+            except Exception as exc:          # a callback's error is otherwise lost
+                lines.append(f"Error drawing the page: {type(exc).__name__}: {exc}")
+            info.value = "<br>".join(html.escape(line) for line in lines)
 
         def step(delta):
             self.go(self.page + delta)
@@ -414,37 +441,73 @@ class TilePager:
 
         previous_button.on_click(lambda _: step(-1))
         next_button.on_click(lambda _: step(1))
-        display(widgets.VBox([widgets.HBox([previous_button, next_button]), out]))
         draw()
+        display(widgets.VBox([widgets.HBox([previous_button, next_button]), info, montage, table, thumbnails]))
 
 
-def tile_title(number, patch):
-    """Short title lines: decision and focus; slide, position and cache; reasons; GrandQC."""
+def tile_title(number, patch, compact=False):
+    """Title lines: decision and focus; slide, position and cache; reasons; GrandQC. `compact` (for small
+    tiles) keeps number, decision and focus, the reasons, and the GrandQC line only when not clean."""
     focus = patch.get("laplacian_variance", "")
     focus = f"{float(focus):.0f}" if focus not in ("", None) else "missing"
-    source = "cached" if str(patch["stored"]) == "True" else "re-read"
     reasons = patch["automatic_reasons"] + (f" | {patch['confirmed_defect']}" if patch["confirmed_defect"] else "")
+    if compact:
+        title = f"{number}  {patch['decision']}  {focus}\n{reasons}"
+        return title + (f"\n{patch['grandqc']}" if patch["grandqc"] not in ("", "gq clean") else "")
+    source = "cached" if str(patch["stored"]) == "True" else "re-read"
     title = (f"{number}  {patch['decision']}  focus {focus}\n"
              f"{patch['slide_id'][:8]} @ {patch['x0']},{patch['y0']}  {source}\n{reasons}")
     return title + (f"\n{patch['grandqc']}" if patch["grandqc"] else "")
 
 
-def show_montage(session, sample):
-    """The sampled tiles, four per row, numbered as in the table and the thumbnails."""
-    rows = (len(sample) + 3) // 4
-    fig, axes = plt.subplots(rows, 4, figsize=(14, 3.7 * rows), squeeze=False)
+COMPACT_BELOW = 3.0      # tile size (inches) under which titles are shortened
+
+
+def montage_figure(session, sample, columns=4, tile_size=3.5):
+    """(figure of the sampled tiles, list of read errors): `columns` per row at `tile_size` inches,
+    numbered as in the table and the thumbnails. Below COMPACT_BELOW inches the titles are shortened."""
+    if columns < 1 or tile_size <= 0:
+        raise ValueError("COLUMNS must be at least 1 and TILE_SIZE positive.")
+    compact = tile_size < COMPACT_BELOW
+    rows = (len(sample) + columns - 1) // columns
+    fig, axes = plt.subplots(rows, columns, figsize=(columns * tile_size, rows * (tile_size + (0.5 if compact else 0.2))),
+                             squeeze=False)
     for ax in axes.flat:
         ax.axis("off")
+    errors = []
     with loader.TileReader(session.root, tiling_config=session.tiling) as reader:
         for number, (ax, patch) in enumerate(zip(axes.flat, sample)):
             try:
                 ax.imshow(reader.read(patch))
             except (RuntimeError, OSError, ValueError, KeyError) as exc:
                 ax.text(0.5, 0.5, "Read failed", ha="center")
-                print(patch["patch_id"], exc)
-            ax.set_title(tile_title(number, patch), fontsize=8.5)
+                errors.append(f"{number}: {patch['patch_id']} {exc}")
+            ax.set_title(tile_title(number, patch, compact), fontsize=7 if compact else 8.5)
     fig.tight_layout()
-    plt.show()
+    return fig, errors
+
+
+def show_figure(fig):
+    """Display a figure once in the current output and close it (so it is not shown a second time)."""
+    from IPython.display import display
+    display(fig)
+    plt.close(fig)
+
+
+def figure_png(fig):
+    """A figure as PNG bytes (for a widget), closing it."""
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format="png", dpi=100, bbox_inches="tight")
+    plt.close(fig)
+    return buffer.getvalue()
+
+
+def show_montage(session, sample, columns=4, tile_size=3.5):
+    """Display the montage of the sampled tiles, then any read errors."""
+    fig, errors = montage_figure(session, sample, columns, tile_size)
+    show_figure(fig)
+    for error in errors:
+        print(error)
 
 
 def sample_table(sample):
@@ -452,9 +515,9 @@ def sample_table(sample):
     return pd.DataFrame(sample).reindex(columns=TABLE_COLUMNS)
 
 
-def show_thumbnails(session, sample):
-    """Each sampled slide's QC thumbnail (green: tissue mask, blue: some stored tiles), with the
-    sampled tiles boxed and numbered in orange."""
+def thumbnails_figure(session, sample):
+    """Figure of each sampled slide's QC thumbnail (green: tissue mask, blue: some stored tiles), with
+    the sampled tiles boxed and numbered in orange."""
     by_slide = {}
     for number, patch in enumerate(sample):
         by_slide.setdefault(patch["slide_id"], []).append((number, patch))
@@ -476,7 +539,12 @@ def show_thumbnails(session, sample):
             ax.annotate(str(number), (x + size, y), color="orange", fontsize=9, fontweight="bold")
         ax.set_title(f"{slide['patient_id']}  {slide_id[:8]}", fontsize=9)
     fig.tight_layout()
-    plt.show()
+    return fig
+
+
+def show_thumbnails(session, sample):
+    """Display the sampled slides' thumbnails with the sampled tiles numbered."""
+    show_figure(thumbnails_figure(session, sample))
 
 
 def save_observation(session, sample, row, usable, confirmed, reviewer, notes=""):

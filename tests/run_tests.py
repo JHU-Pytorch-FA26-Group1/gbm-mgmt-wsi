@@ -856,6 +856,12 @@ def review_helper_checks(check, work):
     check("review_helper: title shows rounded focus, slide, position, cache and GrandQC",
           title.splitlines() == ["3  accept  focus 907", f"{tissue[0]['slide_id'][:8]} @ {tissue[0]['x0']},0  re-read",
                                  "pass", "gq oof 0.96"], title)
+    compact = rh.tile_title(3, {**tissue[0], "laplacian_variance": "906.677", "grandqc": "gq clean"}, compact=True)
+    check("review_helper: compact title keeps number, decision, focus and reasons; drops a clean GrandQC line",
+          compact.splitlines() == ["3  accept  907", "pass"], compact)
+    check("review_helper: bad montage layout refused",
+          _raises(lambda: rh.TilePager(session, every, columns=0))
+          and _raises(lambda: rh.TilePager(session, every, tile_size=0)))
     check("review_helper: GrandQC line lists only fractions of at least 0.01",
           rh.short_grandqc(dict(assessed=1.0, oof=0.96, pen=0.0, fold=0.004, darkspot=0.0, bubble=0.0))
           == "gq oof 0.96"
