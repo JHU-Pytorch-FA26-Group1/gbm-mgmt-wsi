@@ -1,8 +1,8 @@
 """Join packages (e.g. halves A and B, processed on different machines) into one model input.
 
 Example:
-    python data_prep/combine.py --parts A=/data/packages/A_qc-v1 B=/data/packages/B_qc-v1 \
-        --out /data/packages/combined_qc-v1
+    python data_prep/combine.py --parts A=/data/packages/A_qc-v2 B=/data/packages/B_qc-v2 \
+        --out /data/packages/combined_qc-v2
 
 The parts must be intact packages (package.py) made with the same tiling config, code version, QC
 policy and fold map (the repository's manifests/patient_folds.csv), with no patient in two parts.
@@ -29,7 +29,7 @@ import loader
 from common import DEFAULT_FOLDS, read_folds, read_rows, sha256_file, write_rows
 from download import DEFAULT_LOG_DIR, setup_logging, write_json
 
-SHARED = ("tiling_version", "config_sha256", "code_version", "policy_sha256", "folds_sha256", "validation_fold")
+SHARED = ("tiling_version", "config_sha256", "code_version", "policy_sha256", "folds_sha256")
 
 log = logging.getLogger("combine")
 
@@ -64,7 +64,6 @@ def main(argv=None):
             folder = Path(folder).expanduser().resolve()
             if loader.folder_kind(folder) != "package":
                 raise RuntimeError(f"{name}: not a package folder: {folder}")
-            loader.modeling_fold(folder)
             problems = loader.package_problems(folder)
             if problems:
                 raise RuntimeError(f"{name}: {'; '.join(problems[:3])}")

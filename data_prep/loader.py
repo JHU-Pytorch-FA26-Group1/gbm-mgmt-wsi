@@ -75,7 +75,7 @@ def stale_inputs(export_dir, folds_path=DEFAULT_FOLDS):
     if sha256_file(export_dir / "modeling_patches.csv") != settings["modeling_sha256"]:
         changes.append("modeling_patches.csv changed")
     now = export.input_hashes(export_root(export_dir), settings["tiling_version"],
-                              settings["policy"]["version"], settings["subset"], folds_path)
+                              [p["version"] for p in settings["policies"]], settings["subset"], folds_path)
     then = settings["inputs"]
     for key in sorted(set(then) | set(now)):
         if key not in now:
@@ -141,17 +141,6 @@ def folder_problems(folder, allow_partial=False):
     return problems
 
 
-def modeling_fold(folder):
-    """Return the held-out TCGA fold recorded by export, package or combine."""
-    folder = Path(folder)
-    kind = folder_kind(folder)
-    name = {"export": "export_settings.json", "package": PACKAGE_MANIFEST, "combined": COMBINED_SETTINGS}[kind]
-    fold = json.loads((folder / name).read_text()).get("validation_fold")
-    if type(fold) is not int or fold not in range(5):
-        raise ValueError(f"{folder}: missing or invalid QC validation fold; rerun QC and export")
-    return fold
-
-
 def load_modeling(folder, check=True, allow_partial=False):
     """The model tiles of an export, package or combined folder, as a DataFrame (one row per tile).
 
@@ -163,20 +152,18 @@ def load_modeling(folder, check=True, allow_partial=False):
         if problems:
             raise ValueError(f"{Path(folder).name}: {'; '.join(problems[:3])}"
                              f"{' ...' if len(problems) > 3 else ''}")
-    validation_fold = modeling_fold(folder)
-    tiles = pd.read_csv(Path(folder) / "modeling_patches.csv",
-                        dtype={"fold": str, "pixel_sha256": str, "part_dir": str},
-                        keep_default_na=False)
-    tiles.attrs["validation_fold"] = validation_fold
-    return tiles
+    return pd.read_csv(Path(folder) / "modeling_patches.csv",
+                       dtype={"fold": str, "pixel_sha256": str, "part_dir": str},
+                       keep_default_na=False)
 
 
 def with_roles(tiles, fold):
-    """Add `role` for a validation fold: external (CPTAC), validation (this fold) or train."""
+    """Add `role` for a validation fold: external (CPTAC), validation (this fold) or train.
+
+    One modeling list serves every fold, so any fold 0-4 can be requested.
+    """
     if type(fold) is not int or fold not in range(5):
         raise ValueError(f"fold must be 0-4: {fold}")
-    if tiles.attrs.get("validation_fold") != fold:
-        raise ValueError(f"QC modeling list is bound to fold {tiles.attrs.get('validation_fold')}, requested {fold}")
     role = np.where(tiles["source"] == "CPTAC", "external",
                     np.where(tiles["fold"] == str(fold), "validation", "train"))
     return tiles.assign(role=role)

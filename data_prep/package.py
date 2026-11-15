@@ -1,12 +1,13 @@
 """Copy one export and exactly its model tiles into a portable folder for training on any machine.
 
 Examples:
-    python data_prep/package.py --export ~/Bioinformatics/WSI/data/patches/tiling-v7/export/qc-v1/B_<time> \
-        --out ~/Bioinformatics/WSI/packages/B_qc-v1
+    python data_prep/package.py --export ~/Bioinformatics/WSI/data/patches/tiling-v7/export/qc-v2/B_<time> \
+        --out ~/Bioinformatics/WSI/packages/B_qc-v2
     python data_prep/package.py --export <export folder> --out <new folder> --allow-partial   # a preview
 
 Run it on the processing machine (it needs the data root of the export, and the slides for any model
-tile that was not stored at tiling, such as edge tiles a reviewer accepted). The package holds:
+tile that was not stored at tiling: accepted edge tiles, and accepted tissue tiles that fill a slide's
+cap in place of rejected stored ones). The package holds:
   tiles/{source}/{patient_id}/{slide_id}.h5   the model tiles of each slide, PNG bytes copied unchanged
                                                (tiles reread from the slide are encoded losslessly)
   modeling_patches.csv                        the export's rows, pointing at these files (all stored)
@@ -117,7 +118,6 @@ def main(argv=None):
         if loader.folder_kind(export_dir) != "export":
             raise RuntimeError(f"not an export folder: {export_dir}")
         settings = json.loads((export_dir / "export_settings.json").read_text())
-        loader.modeling_fold(export_dir)
         stale = loader.stale_inputs(export_dir)
         if stale:
             raise RuntimeError(f"export is stale ({'; '.join(stale[:3])}); rerun export.py")
@@ -167,8 +167,8 @@ def main(argv=None):
             "kind": "package", "source_export": export_dir.name, "subset": settings["subset"],
             "complete": settings["complete"], "tiling_version": settings["tiling_version"],
             "config_sha256": settings["config_sha256"], "code_version": settings["code_version"],
-            "policy_version": settings["policy"]["version"], "policy_sha256": settings["policy_sha256"],
-            "folds_sha256": settings["folds_sha256"], "validation_fold": settings["validation_fold"],
+            "policy_version": settings["policy_version"], "policy_sha256": settings["policy_sha256"],
+            "folds_sha256": settings["folds_sha256"],
             "export_settings_sha256": sha256_file(export_dir / "export_settings.json"),
             "counts": {"slides": n_slides, "tiles": n_tiles, "tiles_reread_from_slides": n_reread},
             "library_versions": slides.library_versions(),
