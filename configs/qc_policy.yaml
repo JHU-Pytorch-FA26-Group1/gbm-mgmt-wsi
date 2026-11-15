@@ -7,8 +7,8 @@
 # Edge tiles (touching the tissue mask, not more than half tissue) pass only when no rule below rejects
 # or reviews them and they meet all three edge_accept_* cutoffs; the rest go to review.
 version: qc-v3
-sources: [TCGA, CPTAC]     # cohorts this policy decides; to give CPTAC its own policy, set [TCGA] here and
-                           # [CPTAC] in a copy with its own version, and pass both to export.py
+sources: [TCGA]            # cohorts this policy decides; CPTAC has its own policy (qc_policy_cptac.yaml) and
+                           # export.py gets both policies (one per cohort)
 frozen: false
 reviewer: ""               # who approved the frozen policy
 notes: ""                  # how the cutoffs were chosen (e.g. which pilot slides were reviewed)
