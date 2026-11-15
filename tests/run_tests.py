@@ -6,7 +6,8 @@
 Builds a temporary data folder with four synthetic .svs files (tests/make_slides.py) placed at the
 paths of five real manifest rows, with a test copy of the frozen manifest, then runs
 download.py --register, tile.py (tiling, cap, --masks-only, --audit), qc.py, review.py, export.py,
-loader.py (including Macenko) and scripts/run_pipeline.sh, and checks the results.
+loader.py (including Macenko), notebooks/review_helper.py and scripts/run_pipeline.sh, and checks the
+results.
 
 If GBM_PATCHING_DIR points to a folder with the team's gbm_patching.py, it also checks that both
 tilers read identical pixels at matched coordinates; otherwise that check is skipped.
@@ -758,6 +759,9 @@ def main():
     damaged.write_bytes(bytes(data))
     check("package: verify_package catches a changed file", any("changed" in p for p in loader.verify_package(pkg_a)))
 
+    # ------------------------------------------------------------------ 10b. review notebook helper
+    review_helper_checks(check, work)
+
     # ------------------------------------------------------------------ 11. shell script
     script = REPO / "scripts" / "run_pipeline.sh"
     dry = subprocess.run(["bash", str(script), "--root", str(root), "--subset", "full", "--steps",
@@ -779,6 +783,152 @@ def main():
     else:
         print(f"Test data kept in {work}")
     return 0 if passed == len(results) else 1
+
+
+def review_helper_checks(check, work):
+    """Checks of notebooks/review_helper.py on small made-up inputs (no slides): slide selection, the
+    role filter, paging, titles, and that record_decisions writes nothing until every input is valid."""
+    import types
+    sys.path.insert(0, str(REPO / "notebooks"))
+    import qc
+    import review
+    import review_helper as rh
+
+    def patch_row(slide_id, patient_id, role, x):
+        row = {k: "0" for k in ("near_white_fraction", "near_black_fraction", "dark_fraction",
+                                "green_fraction", "glass_fraction")}
+        row.update(mean_r="200", mean_g="150", mean_b="200", mean_saturation="80", mean_value="200",
+                   gray_median="165", laplacian_variance="300", source="TCGA", patient_id=patient_id,
+                   slide_id=slide_id, role=role, stored="False", patch_id=f"TCGA_{'0' * 16}_{x}_0",
+                   x0=str(x), y0="0", x1=str(x + 224), y1="224")
+        return row
+
+    root = work / "helper"
+    slides = []
+    for slide_id, patient_id, roles in (("aaaa1111-x", "TCGA-AA-0001", "tteee"),
+                                        ("bbbb2222-y", "TCGA-AA-0001", "tt"),
+                                        ("cccc3333-z", "TCGA-AA-0002", "te")):
+        path = root / f"{slide_id}_patches.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rows = [patch_row(slide_id, patient_id, "tissue" if r == "t" else "edge", 224 * i)
+                for i, r in enumerate(roles)]
+        with path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+        slides.append(dict(source="TCGA", patient_id=patient_id, slide_id=slide_id, csv=path.name, h5=""))
+    session = types.SimpleNamespace(
+        root=root, cohort="TCGA", slides=slides, patients=["TCGA-AA-0001", "TCGA-AA-0002"],
+        policy={**qc.load_policy()[0], "grandqc": False}, journal=root / "journal.csv",
+        tiling_version="tiling-test")
+
+    check("review_helper: SLIDE prefix picks one slide; PATIENT picks its slides",
+          [s["slide_id"] for s in rh.select_slides(session, None, "bbbb")] == ["bbbb2222-y"]
+          and [s["slide_id"] for s in rh.select_slides(session, "TCGA-AA-0001")] == ["aaaa1111-x", "bbbb2222-y"])
+    cptac = types.SimpleNamespace(**{**vars(session), "cohort": "CPTAC"})
+    check("review_helper: unknown slide or patient, and PATIENT None for CPTAC, refused",
+          _raises(lambda: rh.select_slides(session, None, "zzzz"))
+          and _raises(lambda: rh.select_slides(session, "TCGA-ZZ-9999"))
+          and _raises(lambda: rh.select_slides(cptac, None)))
+    edge, edge_matches = rh.match_tiles(session, slides, role="edge")
+    tissue, tissue_matches = rh.match_tiles(session, slides, role="tissue")
+    both = rh.match_tiles(session, slides)[1]
+    check("review_helper: ROLE keeps only tissue or only edge tiles",
+          edge_matches == 4 and tissue_matches == 5 and both == 9
+          and {p["role"] for p in edge} == {"edge"} and {p["role"] for p in tissue} == {"tissue"},
+          (edge_matches, tissue_matches, both))
+    check("review_helper: unknown ROLE refused", _raises(lambda: rh.match_tiles(session, slides, role="tisue")))
+    every, _ = rh.match_tiles(session, slides, seed=7)
+    again, _ = rh.match_tiles(session, slides, seed=7)
+    capped, capped_matches = rh.match_tiles(session, slides, limit=3)
+    check("review_helper: matches in a seeded order; past the limit, a random subset of that size",
+          [t["patch_id"] + t["slide_id"] for t in every] == [t["patch_id"] + t["slide_id"] for t in again]
+          and len(every) == 9 and len(capped) == 3 and capped_matches == 9)
+    pager = rh.TilePager(session, every, per_page=4, page=9)
+    last_page = (pager.page, len(pager.current()))
+    pager.go(-3)
+    first_page = [t["patch_id"] + t["slide_id"] for t in pager.current()]
+    check("review_helper: pager has 3 pages of 4, 4, 1 tiles and stays within them",
+          pager.pages == 3 and last_page == (2, 1) and pager.page == 0
+          and first_page == [t["patch_id"] + t["slide_id"] for t in every[:4]]
+          and rh.TilePager(session, [], per_page=4).pages == 1, (pager.pages, last_page, pager.page))
+    title = rh.tile_title(3, {**tissue[0], "laplacian_variance": "906.677", "grandqc": "gq oof 0.96"})
+    check("review_helper: title shows rounded focus, slide, position, cache and GrandQC",
+          title.splitlines() == ["3  accept  focus 907", f"{tissue[0]['slide_id'][:8]} @ {tissue[0]['x0']},0  re-read",
+                                 "pass", "gq oof 0.96"], title)
+    check("review_helper: GrandQC line lists only fractions of at least 0.01",
+          rh.short_grandqc(dict(assessed=1.0, oof=0.96, pen=0.0, fold=0.004, darkspot=0.0, bubble=0.0))
+          == "gq oof 0.96"
+          and rh.short_grandqc(dict(assessed=0.6, oof=0, pen=0, fold=0, darkspot=0, bubble=0)) == "gq assessed 0.60")
+
+    summary_dir = root / "patches" / "tiling-test" / "qc" / "qc-test"
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    summary_fields = ["source", "patient_id", "slide_id", "tissue_tiles", "accept", "review", "reject",
+                      "edge_tiles", "edge_accept", "edge_review", "edge_reject", "reasons", "slide_flags",
+                      "grandqc", "pen_fraction"]
+    with (summary_dir / "slides_full.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=summary_fields)
+        writer.writeheader()
+        for slide_id, pen, status, reasons in (("aaaa1111-x", "0.0400", "ok", '{"gq_pen": 12}'),
+                                               ("bbbb2222-y", "0.0050", "ok", "{}"),
+                                               ("cccc3333-z", "0.2000", "ok", '{"gq_pen": 30, "blur": 2}'),
+                                               ("dddd4444-w", "", "no GrandQC data", "{}")):
+            writer.writerow(dict(source="TCGA", patient_id="TCGA-AA-0002" if slide_id == "cccc3333-z" else "TCGA-AA-0001",
+                                 slide_id=slide_id, tissue_tiles="9", accept="5", review="3", reject="1",
+                                 edge_tiles="4", edge_accept="2", edge_review="1", edge_reject="1", reasons=reasons,
+                                 slide_flags="pale" if slide_id == "bbbb2222-y" else "", grandqc=status,
+                                 pen_fraction=pen))
+    summary_session = types.SimpleNamespace(**{**vars(session), "subset": "full",
+                                               "policy": {**session.policy, "version": "qc-test", "grandqc": True,
+                                                          "pen_slide_above": 0.01}})
+    pen = rh.pen_slides(summary_session)
+    pen_off = rh.pen_slides(types.SimpleNamespace(**{**vars(summary_session), "policy": {
+        **summary_session.policy, "pen_slide_above": None}}))
+    check("review_helper: pen slides are those above pen_slide_above, largest first, with gq_pen counts",
+          list(pen["slide_id"]) == ["cccc3333-z", "aaaa1111-x"] and list(pen["gq_pen"]) == [30, 12]
+          and pen_off.empty, pen.to_dict("list"))
+    check("review_helper: slides without current GrandQC data listed",
+          list(rh.grandqc_missing(summary_session)["slide_id"]) == ["dddd4444-w"])
+
+    one_slide = rh.match_tiles(session, slides[:1])[0]
+    folder = review.review_dir(root, session.tiling_version)
+    refused = [lambda: rh.record_decisions(session, one_slide, [0, 99], "reject", "fold", reviewer="tests"),
+               lambda: rh.record_decisions(session, one_slide, [0], "reject", "smudge", reviewer="tests"),
+               lambda: rh.record_decisions(session, one_slide, [0], "reject", "fold", sign_off="exclude",
+                                           reviewer="tests"),
+               lambda: rh.record_decisions(session, one_slide, [0], "reject", "fold", sign_off="approve",
+                                           checks={"colour": True}, reviewer="tests"),
+               lambda: rh.record_decisions(session, one_slide, [0], "reject", "fold", sign_off="approve",
+                                           checks={"focus": "yes"}, reviewer="tests"),
+               lambda: rh.record_decisions(session, edge, [0], "reject", "fold", sign_off="approve",
+                                           reviewer="tests"),
+               lambda: rh.record_decisions(session, one_slide, [0], "reject", "fold")]
+    check("review_helper: bad decisions refused before anything is written",
+          all(_raises(f) for f in refused) and not folder.exists())
+    rh.record_decisions(session, one_slide, [0, 2], "reject", "fold", sign_off="approve", checks={"focus": True},
+                        reviewer="tests")
+    signoffs, recorded = rh.decision_status(session, one_slide)
+    check("review_helper: patch decisions and sign-off recorded through review.py",
+          signoffs == {"aaaa1111-x": "approve"} and recorded == {0: "reject", 2: "reject"}
+          and review.load_reviews(root, session.tiling_version).signoffs[("TCGA", "aaaa1111-x")]["focus_checked"] == "True",
+          (signoffs, recorded))
+
+    summary_session.tiling = REPO / "configs" / "tiling.yaml"
+    review.sign_off_slide(root, "tiling-test", "TCGA", "dddd4444-w", "exclude", "tests", notes="test")
+    per_slide = rh.slide_stats(summary_session, cap=6).set_index("slide_id")
+    per_patient = rh.patient_stats(summary_session, cap=6).set_index("patient_id")
+    first = per_patient.loc["TCGA-AA-0001"]
+    check("review_helper: slide stats cap accepted tiles, zero an excluded slide, and flag pen and below-cap slides",
+          per_slide.loc["aaaa1111-x", "est_export"] == 6 and per_slide.loc["dddd4444-w", "est_export"] == 0
+          and per_slide.loc["aaaa1111-x", "all_tiles"] == 13 and per_slide.loc["aaaa1111-x", "flags"] == "pen"
+          and per_slide.loc["bbbb2222-y", "flags"] == "pale" and not per_slide.loc["dddd4444-w", "below_cap"]
+          and per_slide.loc["dddd4444-w", "signed_off"] == "exclude", per_slide.to_dict("index"))
+    check("review_helper: patient stats sum their slides, fewest estimated export first",
+          list(per_patient.index) == ["TCGA-AA-0002", "TCGA-AA-0001"] and first["slides"] == 3
+          and first["tissue_tiles"] == 27 and first["est_export"] == 12 and first["slides_below_cap"] == 0
+          and first["signed_off"] == "1 approve, 1 exclude" and first["flags"] == "aaaa1111:pen bbbb2222:pale"
+          and rh.slide_stats(summary_session, cap=8).set_index("slide_id").loc["aaaa1111-x", "below_cap"],
+          per_patient.to_dict("index"))
 
 
 def _raises(function):
