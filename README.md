@@ -378,6 +378,8 @@ fold, 3 dark spot, 4 pen, 5 edge/air bubble, 6 out of focus, 7 background, 0 no 
 masks (Zenodo record 14041578, CC BY-NC-SA) come as `GBM.tar` with `mask_qc/<file name>.svs_mask.png`;
 extract it and put the PNGs in `<data>/external/grandqc/TCGA/`. Masks made for CPTAC with the same GrandQC
 model and resolution go in `<data>/external/grandqc/CPTAC/`, named `<file name>_mask.png`.
+For CPTAC mask generation, use the [Run:ai GrandQC guide](GrandQC_CPTAC_RunAI_README.md)
+and its 10× artifact checkpoint, `GrandQC_MPP1.pth`.
 
 ```
 tar -xf external/grandqc/GBM.tar -C external/grandqc && mv external/grandqc/GBM/mask_qc external/grandqc/TCGA
