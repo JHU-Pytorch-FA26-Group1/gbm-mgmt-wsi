@@ -119,9 +119,13 @@ def main():
         return path
 
     def policy(name, **changes):
-        """A copy of configs/qc_policy.yaml with some values changed (GrandQC off unless set). A changed
-        key that holds a block list (pen_slides) loses its "- item" lines."""
-        changes = {"grandqc": "false", **changes}
+        """A copy of configs/qc_policy.yaml with some values changed (GrandQC off unless set). It decides
+        both cohorts unless `sources` is set, since the test subset has TCGA and CPTAC slides (the repo's
+        policy is TCGA-only, with CPTAC in qc_policy_cptac.yaml). A changed key that holds a block list
+        (pen_slides) loses its "- item" lines."""
+        changes = {"grandqc": "false", "sources": "[TCGA, CPTAC]", **changes}
+        if changes["sources"] == "[CPTAC]":   # the repo's pen list holds TCGA slides; a CPTAC policy has none
+            changes = {"pen_slides": "[]", "pen_tile_review_above": "null", **changes}
         text = (REPO / "configs" / "qc_policy.yaml").read_text()
         lines, replaced = [], False
         for line in text.splitlines():
