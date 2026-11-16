@@ -128,19 +128,23 @@ def flagged_slides(session):
             .reset_index(drop=True))
 
 
-def pen_slides(session):
-    """The cohort's GrandQC pen slides (pen fraction above the policy's pen_slide_above), largest first,
-    with how many tissue tiles went to review for pen. Empty when the pen rule is off; None when
-    qc.py has not written slides_<subset>.csv for this policy."""
+def pen_slides(session, candidate_above=0.01):
+    """GrandQC pen candidates for the cohort: slides with a GrandQC pen fraction above `candidate_above`,
+    plus every slide in the policy's pen_slides, largest pen fraction first. `listed` marks the slides on
+    the list (only their pen tiles go to review), and `gq_pen` counts those tissue tiles. Empty when the
+    pen rule is off; None when qc.py has not written slides_<subset>.csv for this policy."""
     summary = slide_summary(session)
     if summary is None:
         return None
-    cutoff = session.policy["pen_slide_above"]
-    columns = ["patient_id", "slide_id", "pen_fraction", "gq_pen", "tissue_tiles", "accept", "review", "reject"]
-    if cutoff is None or not session.policy["grandqc"]:
+    columns = ["patient_id", "slide_id", "listed", "pen_fraction", "gq_pen", "tissue_tiles", "accept", "review",
+               "reject"]
+    if session.policy["pen_tile_review_above"] is None or not session.policy["grandqc"]:
         return pd.DataFrame(columns=columns)
-    pen = summary[pd.to_numeric(summary["pen_fraction"], errors="coerce") > cutoff].copy()
-    pen["pen_fraction"] = pen["pen_fraction"].astype(float)
+    listed = set(session.policy["pen_slides"])
+    fraction = pd.to_numeric(summary["pen_fraction"], errors="coerce")
+    pen = summary[(fraction > candidate_above) | summary["slide_id"].isin(listed)].copy()
+    pen["pen_fraction"] = pd.to_numeric(pen["pen_fraction"], errors="coerce").fillna(0.0)
+    pen["listed"] = pen["slide_id"].isin(listed)
     pen["gq_pen"] = [json.loads(r or "{}").get("gq_pen", 0) for r in pen["reasons"]]
     return (pen.sort_values("pen_fraction", ascending=False)[columns]
             .rename(columns={"accept": "tissue_accept", "review": "tissue_review", "reject": "tissue_reject"})
@@ -157,9 +161,10 @@ def grandqc_missing(session):
 
 
 def show_pen_overview(session, pen, columns=3, review_color="orange", accepted_color="cyan"):
-    """Each pen slide's QC thumbnail with its tiles shaded: `review_color` for tiles sent to review for
-    pen (gq_pen), `accepted_color` for accepted tiles where GrandQC still found pen (at least 0.01 of
-    the tile). Colors are any matplotlib color name or hex string."""
+    """Each slide in `pen` (from pen_slides) as its QC thumbnail with its tiles shaded: `review_color`
+    for tiles sent to review for pen (gq_pen; listed slides only), `accepted_color` for accepted tiles
+    where GrandQC still found pen (at least 0.01 of the tile). Colors are any matplotlib color name or hex
+    string."""
     slide_rows = {s["slide_id"]: s for s in session.slides}
     chosen = [slide_rows[slide_id] for slide_id in pen["slide_id"] if slide_id in slide_rows]
     if not chosen:
@@ -197,8 +202,9 @@ def show_pen_overview(session, pen, columns=3, review_color="orange", accepted_c
                 y1 = max(int(int(patch["y1"]) * scale), y0 + 1)
                 image[y0:y1, x0:x1] = 0.45 * image[y0:y1, x0:x1] + 0.55 * color
         ax.imshow(image)
-        fraction = pen.loc[pen["slide_id"] == slide["slide_id"], "pen_fraction"].iloc[0]
-        ax.set_title(f"{slide['patient_id']}  {slide['slide_id'][:8]}  pen {fraction:.3f}\n"
+        row = pen.loc[pen["slide_id"] == slide["slide_id"]].iloc[0]
+        status = "LISTED" if row.get("listed", False) else "not listed"
+        ax.set_title(f"{slide['patient_id']}  {slide['slide_id'][:8]}  pen {row['pen_fraction']:.3f}  {status}\n"
                      f"{review_color} gq_pen {counts['gq_pen']:,}  |  "
                      f"{accepted_color} accepted with pen {counts['accepted with pen']:,}",
                      fontsize=9)
@@ -221,7 +227,7 @@ def slide_stats(session, cap=None):
     if cap is None:
         cap = common.load_tiling_config(session.tiling)[0]["max_tiles_per_slide"]
     signoffs = review.load_reviews(session.root, session.tiling_version).signoffs
-    pen_cutoff = session.policy["pen_slide_above"] if session.policy["grandqc"] else None
+    listed = set(session.policy["pen_slides"]) if session.policy["grandqc"] else set()
     rows = []
     for r in summary.to_dict("records"):
         counts = {k: int(r[k] or 0) for k in ("tissue_tiles", "accept", "review", "reject", "edge_tiles",
@@ -230,7 +236,7 @@ def slide_stats(session, cap=None):
         accepted = counts["accept"] + counts["edge_accept"]
         export = 0 if signed == "exclude" else (accepted if cap is None else min(accepted, cap))
         flags = [f for f in r["slide_flags"].split(";") if f]
-        if pen_cutoff is not None and r["pen_fraction"] not in ("", None) and float(r["pen_fraction"]) > pen_cutoff:
+        if r["slide_id"] in listed:
             flags.append("pen")
         rows.append(dict(patient_id=r["patient_id"], slide_id=r["slide_id"],
                          tissue_tiles=counts["tissue_tiles"], tissue_accept=counts["accept"],

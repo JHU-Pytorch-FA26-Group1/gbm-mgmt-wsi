@@ -324,7 +324,7 @@ cohort" below).
 | `grandqc` | true | Use the GrandQC fractions from `grandqc.py` (below). A slide without current GrandQC data gets no decisions, so export blocks its patient. `false`: the GrandQC settings are ignored. |
 | `grandqc_min_assessed` | 0.5 | A tile with less of its area assessed by GrandQC (label 0 = no call) skips the GrandQC rules; an edge tile is then not auto-accepted (`grandqc_unassessed`). Required with `grandqc`. |
 | `oof_review_above` | 0.5 | **Review** a tile more than half out of focus per GrandQC (`gq_oof`). This is the focus review band; blur below `blur_reject_below` is still rejected first. |
-| `pen_slide_above`, `pen_tile_review_above` | 0.01, 0.25 | A pen slide has pen on more than 1% of its labelled pixels (tissue and artifacts; glass and unassessed areas left out). On pen slides only, **review** a tile more than 25% pen (`gq_pen`). Set both or neither. |
+| `pen_slides`, `pen_tile_review_above` | 12 slide IDs, 0.25 | On the slides listed in `pen_slides` only, **review** a tile more than 25% pen (`gq_pen`). GrandQC's pen class also fires on strongly stained or dense tissue, so the list holds the slides whose marker (or other overlay) was confirmed by eye among GrandQC's candidates (pen on more than 1% of the slide; `review_qc.ipynb` shows them). A non-empty list and the cutoff are set together; `qc.py` and `export.py` refuse IDs that are not slides of the policy's cohorts. CPTAC's list is empty. |
 | `fold_review_above`, `darkspot_review_above` | null, null | **Review** a tile with more GrandQC fold or dark spot than this (`gq_fold`, `gq_darkspot`; dark spot is skipped on pale slides). Off until spot-checked. |
 | `edge_accept_artifact_below` | 0.25 | With GrandQC, an edge tile is auto-accepted only if its fold, dark spot and out-of-focus fractions are each at or below this. |
 | `frozen`, `reviewer`, `notes` | false, "", "" | Set `frozen: true`, who approved the values and how they were chosen, once the team agrees them. `export.py` only builds a modeling list from a frozen policy. |
@@ -562,7 +562,7 @@ python tests/run_tests.py --keep    # keep the temporary data folder for inspect
 It covers registering copies, tiling, the resolution limit, the mask floor, lossless storage, the cap,
 rereading tiles, the audit (rereads of unstored tiles, slide rehashing, a changed pixel or QC image caught),
 the config and `--slides` guards, GrandQC fractions from synthetic masks (painted artifacts, a missing
-mask, a mask of the wrong size, the pen-slide gate, unassessed tiles), QC rules (blur, green ink, GrandQC
+mask, a mask of the wrong size, the pen-slide list, unassessed tiles), QC rules (blur, green ink, GrandQC
 reasons, edge acceptance, slide flags, frozen-policy
 requirements, the review queue), reviews (including reinstating an edge tile), the export gates and
 accounting (calibration patients, one policy per cohort with CPTAC calibration patients withheld, required

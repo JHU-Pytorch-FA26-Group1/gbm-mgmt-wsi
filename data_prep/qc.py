@@ -3,6 +3,7 @@
 Examples:
     python data_prep/qc.py --root ~/Bioinformatics/WSI/data --subset B
     python data_prep/qc.py --root ~/Bioinformatics/WSI/data --subset B --policy configs/qc_policy.yaml
+    python data_prep/qc.py --root ~/Bioinformatics/WSI/data --subset B --policy configs/qc_policy_cptac.yaml
 
 tile.py stores every tissue tile's scores and makes no quality decisions. This script reads
 patches/<tiling version>/index_<subset>.csv and each slide's _patches.csv, applies
@@ -31,14 +32,16 @@ pale_slide_saturation_below), "no_tissue" (no tissue tiles) and "mask_floor" (ti
 mask threshold to its floor).
 
 GrandQC (grandqc: true): each slide's per-tile artifact fractions from grandqc.py add review reasons
-gq_oof (out of focus above oof_review_above), gq_pen (pen above pen_tile_review_above, only on slides
-whose pen fraction is above pen_slide_above), gq_fold and gq_darkspot (dark spot not on pale slides);
+gq_oof (out of focus above oof_review_above), gq_pen (pen above pen_tile_review_above, only on the slides
+listed in pen_slides: slides whose marker or other overlay was confirmed by eye, because GrandQC's pen
+class also fires on strongly stained tissue), gq_fold and gq_darkspot (dark spot not on pale slides);
 an edge tile is accepted only if its fold, dark spot and out-of-focus fractions are each at or below
 edge_accept_artifact_below. A tile with less than grandqc_min_assessed of its area assessed skips these
 rules (an edge tile then goes to review). A slide without current GrandQC data gets no decisions, so
 export.py blocks its patient; the QC receipt lists those slides and the hash inputs of the rest.
 
-Exit codes: 0 = done, 1 = some slides had no GrandQC data, 2 = setup or policy problem.
+Exit codes: 0 = done, 1 = some slides had no GrandQC data, 2 = setup or policy problem (including a
+pen_slides ID that is not a slide of the policy's cohorts in the manifest).
 """
 import argparse
 import csv
@@ -56,10 +59,10 @@ import yaml
 
 from common import (DEFAULT_FOLDS, DEFAULT_POLICY, DEFAULT_TILING_CONFIG, is_level, is_name, is_num, load_settings,
                     read_folds, sha256_file, tiling_version, write_rows)
-from download import DEFAULT_LOG_DIR, setup_logging, write_json
+from download import DEFAULT_LOG_DIR, DEFAULT_MANIFEST, setup_logging, write_json
 import grandqc
 
-GRANDQC_KEYS = ("grandqc", "grandqc_min_assessed", "oof_review_above", "pen_slide_above",
+GRANDQC_KEYS = ("grandqc", "grandqc_min_assessed", "oof_review_above", "pen_slides",
                 "pen_tile_review_above", "fold_review_above", "darkspot_review_above",
                 "edge_accept_artifact_below")
 EDGE_ACCEPT_KEYS = ("edge_accept_glass_below", "edge_accept_blur_above", "edge_accept_dark_below")
@@ -94,6 +97,8 @@ def parse_args(argv=None):
     parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY,
                         help="QC policy (default: %(default)s)")
     parser.add_argument("--folds", type=Path, default=DEFAULT_FOLDS, help="shared patient fold map")
+    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST,
+                        help="slide manifest that pen_slides IDs are checked against (default: %(default)s)")
     parser.add_argument("--tiling-config", type=Path, default=DEFAULT_TILING_CONFIG,
                         help="tiling config whose outputs to read (default: %(default)s)")
     parser.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR,
@@ -106,8 +111,9 @@ def load_policy(path=DEFAULT_POLICY):
 
     A frozen policy must name its reviewer, say in `notes` how its cutoffs were chosen, list its
     TCGA calibration patients and set blur_reject_below. The edge_accept_* cutoffs are set together or
-    all null (edge tiles then always go to review). With grandqc: true, grandqc_min_assessed is required
-    and the pen cutoffs are set together; with grandqc: false the GrandQC cutoffs are ignored.
+    all null (edge tiles then always go to review). With grandqc: true, grandqc_min_assessed is required;
+    pen_slides (a list of unique slide IDs) is non-empty exactly when pen_tile_review_above is set. With
+    grandqc: false the GrandQC settings are ignored. validate_pen_slides checks the IDs themselves.
     """
     def optional(check):
         return lambda v, s: v is None or check(v)
@@ -156,14 +162,24 @@ def load_policy(path=DEFAULT_POLICY):
         "grandqc": lambda v, s: isinstance(v, bool),
         "grandqc_min_assessed": lambda v, s: (v is None and not s["grandqc"]) or fraction(v),
         "oof_review_above": optional(fraction),
-        "pen_slide_above": lambda v, s: ((v is None) == (s["pen_tile_review_above"] is None)
-                                         and (v is None or fraction(v))),
+        "pen_slides": lambda v, s: (isinstance(v, list) and all(isinstance(x, str) and x.strip() for x in v)
+                                    and len(set(v)) == len(v)
+                                    and (len(v) > 0) == (s["pen_tile_review_above"] is not None)),
         "pen_tile_review_above": optional(fraction),
         "fold_review_above": optional(fraction),
         "darkspot_review_above": optional(fraction),
         "edge_accept_artifact_below": optional(fraction),
     }
     return load_settings(path, POLICY_KEYS, checks, "policy")
+
+
+def validate_pen_slides(policy, manifest_files):
+    """Refuse pen_slides IDs that are not slides of the policy's cohorts in the manifest (typos, or a
+    slide of the other cohort)."""
+    known = {row["slide_id"] for row in manifest_files if row["source"] in policy["sources"]}
+    unknown = sorted(set(policy["pen_slides"]) - known)
+    if unknown:
+        raise ValueError(f"pen_slides not in the manifest for {policy['sources']}: {unknown}")
 
 
 def calibration_patients(folds, sources=("TCGA",)):
@@ -284,14 +300,14 @@ def edge_artifacts_pass(gq, policy):
 def grandqc_context(root, version, slide, policy, median_saturation):
     """Return ({patch_id: fractions + slide flags}, receipt, "") for a slide, or (None, None, reason).
 
-    The slide is a pen slide when its pen fraction is above pen_slide_above, and a pale slide when its
-    median tissue-tile saturation is below pale_slide_saturation_below.
+    The slide is a pen slide when the policy lists it in pen_slides, and a pale slide when its median
+    tissue-tile saturation is below pale_slide_saturation_below.
     """
     receipt, why = grandqc.current(root, version, slide)
     if receipt is None:
         return None, None, why
-    pen_cutoff, pale_cutoff = policy["pen_slide_above"], policy["pale_slide_saturation_below"]
-    flags = {"pen_slide": pen_cutoff is not None and receipt["pen_fraction"] > pen_cutoff,
+    pale_cutoff = policy["pale_slide_saturation_below"]
+    flags = {"pen_slide": slide["slide_id"] in policy["pen_slides"],
              "pale_slide": (pale_cutoff is not None and median_saturation is not None
                             and median_saturation < pale_cutoff)}
     return ({k: {**v, **flags} for k, v in grandqc.read_fractions(root, version, slide).items()},
@@ -368,6 +384,7 @@ def main(argv=None):
         folds_path = args.folds.expanduser().resolve()
         fold_sha = sha256_file(folds_path)
         validate_calibration(policy, read_folds(folds_path))
+        validate_pen_slides(policy, json.loads(args.manifest.expanduser().resolve().read_text())["files"])
         if sha256_file(folds_path) != fold_sha:
             raise RuntimeError("fold map changed while reading")
         version = tiling_version(args.tiling_config.expanduser().resolve())

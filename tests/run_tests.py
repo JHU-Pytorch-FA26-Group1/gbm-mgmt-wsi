@@ -119,13 +119,17 @@ def main():
         return path
 
     def policy(name, **changes):
-        """A copy of configs/qc_policy.yaml with some values changed (GrandQC off unless set)."""
+        """A copy of configs/qc_policy.yaml with some values changed (GrandQC off unless set). A changed
+        key that holds a block list (pen_slides) loses its "- item" lines."""
         changes = {"grandqc": "false", **changes}
         text = (REPO / "configs" / "qc_policy.yaml").read_text()
-        lines = []
+        lines, replaced = [], False
         for line in text.splitlines():
+            if replaced and line.lstrip().startswith("- "):
+                continue
             key = line.split(":")[0]
-            lines.append(f"{key}: {changes[key]}" if key in changes else line)
+            replaced = key in changes
+            lines.append(f"{key}: {changes[key]}" if replaced else line)
         path = work / f"{name}.yaml"
         path.write_text("\n".join(lines) + "\n")
         return path
@@ -336,11 +340,16 @@ def main():
     check("qc: edge_accept cutoffs set only in part refused",
           qc.main(["--root", str(root), "--subset", "full", "--log-dir", str(logs),
                    "--policy", str(policy("p_bad6", edge_accept_dark_below="null"))]) == 2)
-    check("qc: GrandQC without grandqc_min_assessed, or with only one pen cutoff, refused",
+    check("qc: GrandQC without grandqc_min_assessed, an empty pen list with a pen cutoff, or a pen_slides ID "
+          "that is not a TCGA slide, refused",
           qc.main(["--root", str(root), "--subset", "full", "--log-dir", str(logs), "--policy",
                    str(policy("p_bad7", grandqc="true", grandqc_min_assessed="null"))]) == 2
           and qc.main(["--root", str(root), "--subset", "full", "--log-dir", str(logs), "--policy",
-                       str(policy("p_bad8", grandqc="true", pen_slide_above="null"))]) == 2)
+                       str(policy("p_bad8", grandqc="true", pen_slides="[]"))]) == 2
+          and qc.main(["--root", str(root), "--subset", "full", "--log-dir", str(logs), "--policy",
+                       str(policy("p_bad9", grandqc="true", pen_slides='["not-a-slide"]'))]) == 2
+          and qc.main(["--root", str(root), "--subset", "full", "--log-dir", str(logs), "--policy",
+                       str(policy("p_bad10", grandqc="true", pen_slides=f'["{picks["coarse_ok"]["slide_id"]}"]'))]) == 2)
     edge_counts = read_csv(root / "patches" / version / "qc" / default_policy["version"] / "slides_full.csv")
     check("qc: edge tiles decided (accept, review or reject), counted apart from tissue",
           all(int(s["edge_tiles"]) == int(s["edge_accept"]) + int(s["edge_review"]) + int(s["edge_reject"])
@@ -499,7 +508,7 @@ def main():
     for t in pen_tiles:
         paint(picks["mixed"]["slide_id"], t, 4)          # about 1.5% of the slide: a pen slide
     paint(picks["mixed"]["slide_id"], blank_tile, 0)
-    paint(picks["faint"]["slide_id"], faint_pen, 4)      # under 1% of the slide: not a pen slide
+    paint(picks["faint"]["slide_id"], faint_pen, 4)      # a pen tile on a slide not on the pen list
     for slide_id, m in mask_arrays.items():
         path = grandqc.mask_path(masks, index_rows[slide_id])
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -519,7 +528,15 @@ def main():
           grandqc.main(["--root", str(root), "--subset", "full", "--log-dir", str(logs)]) == 1
           and read_csv(root / "patches" / version / "grandqc" / "grandqc_full.csv")[0]["reason"]
           in ("unchanged", f"no mask at {grandqc.mask_path(masks, index_rows[next(iter(gq_status))])}"))
+    listed_flags = qc.grandqc_context(root, version, index_rows[picks["mixed"]["slide_id"]],
+                                      {**qc.load_policy()[0], "pen_slides": [picks["mixed"]["slide_id"]]}, None)[0]
+    unlisted_flags = qc.grandqc_context(root, version, index_rows[picks["mixed"]["slide_id"]],
+                                        qc.load_policy()[0], None)[0]
+    check("qc: a slide is a pen slide only when pen_slides lists it, whatever its pen fraction",
+          all(t["pen_slide"] for t in listed_flags.values())
+          and not any(t["pen_slide"] for t in unlisted_flags.values()))
     gq_frozen = policy("p_gq", version="qc-gq", grandqc="true", frozen="true", reviewer='"tests"', notes='"x"',
+                       pen_slides=f'["{picks["mixed"]["slide_id"]}"]',
                        calibration_patients=calibration)
     gq_qc = qc.main(["--root", str(root), "--subset", "full", "--log-dir", str(logs), "--policy", str(gq_frozen)])
     gq_decisions = {d["patch_id"]: d for sid in mask_arrays
@@ -886,12 +903,14 @@ def review_helper_checks(check, work):
                                  pen_fraction=pen))
     summary_session = types.SimpleNamespace(**{**vars(session), "subset": "full",
                                                "policy": {**session.policy, "version": "qc-test", "grandqc": True,
-                                                          "pen_slide_above": 0.01}})
+                                                          "pen_slides": ["aaaa1111-x", "bbbb2222-y"],
+                                                          "pen_tile_review_above": 0.25}})
     pen = rh.pen_slides(summary_session)
     pen_off = rh.pen_slides(types.SimpleNamespace(**{**vars(summary_session), "policy": {
-        **summary_session.policy, "pen_slide_above": None}}))
-    check("review_helper: pen slides are those above pen_slide_above, largest first, with gq_pen counts",
-          list(pen["slide_id"]) == ["cccc3333-z", "aaaa1111-x"] and list(pen["gq_pen"]) == [30, 12]
+        **summary_session.policy, "pen_slides": [], "pen_tile_review_above": None}}))
+    check("review_helper: pen candidates (above 1%) plus listed slides, largest first, marked listed, with gq_pen",
+          list(pen["slide_id"]) == ["cccc3333-z", "aaaa1111-x", "bbbb2222-y"]
+          and list(pen["listed"]) == [False, True, True] and list(pen["gq_pen"]) == [30, 12, 0]
           and pen_off.empty, pen.to_dict("list"))
     check("review_helper: slides without current GrandQC data listed",
           list(rh.grandqc_missing(summary_session)["slide_id"]) == ["dddd4444-w"])
@@ -924,15 +943,17 @@ def review_helper_checks(check, work):
     per_slide = rh.slide_stats(summary_session, cap=6).set_index("slide_id")
     per_patient = rh.patient_stats(summary_session, cap=6).set_index("patient_id")
     first = per_patient.loc["TCGA-AA-0001"]
-    check("review_helper: slide stats cap accepted tiles, zero an excluded slide, and flag pen and below-cap slides",
+    check("review_helper: slide stats cap accepted tiles, zero an excluded slide, and flag listed pen and "
+          "below-cap slides",
           per_slide.loc["aaaa1111-x", "est_export"] == 6 and per_slide.loc["dddd4444-w", "est_export"] == 0
           and per_slide.loc["aaaa1111-x", "all_tiles"] == 13 and per_slide.loc["aaaa1111-x", "flags"] == "pen"
-          and per_slide.loc["bbbb2222-y", "flags"] == "pale" and not per_slide.loc["dddd4444-w", "below_cap"]
+          and per_slide.loc["bbbb2222-y", "flags"] == "pale;pen" and per_slide.loc["cccc3333-z", "flags"] == ""
+          and not per_slide.loc["dddd4444-w", "below_cap"]
           and per_slide.loc["dddd4444-w", "signed_off"] == "exclude", per_slide.to_dict("index"))
     check("review_helper: patient stats sum their slides, fewest estimated export first",
           list(per_patient.index) == ["TCGA-AA-0002", "TCGA-AA-0001"] and first["slides"] == 3
           and first["tissue_tiles"] == 27 and first["est_export"] == 12 and first["slides_below_cap"] == 0
-          and first["signed_off"] == "1 approve, 1 exclude" and first["flags"] == "aaaa1111:pen bbbb2222:pale"
+          and first["signed_off"] == "1 approve, 1 exclude" and first["flags"] == "aaaa1111:pen bbbb2222:pale;pen"
           and rh.slide_stats(summary_session, cap=8).set_index("slide_id").loc["aaaa1111-x", "below_cap"],
           per_patient.to_dict("index"))
 

@@ -192,6 +192,8 @@ def main(argv=None):
         withheld = set().union(*(qc.withheld_patients(p, folds) for p, _, _ in policies))
         _, manifest = load_manifest(args.manifest.expanduser().resolve())
         all_files = manifest["files"]
+        for policy, _, _ in policies:
+            qc.validate_pen_slides(policy, all_files)
         expected = split.select_files(all_files, args.subset, split.build_patient_split(all_files))
         reviews = review.load_reviews(args.root, version)
         audits = latest_audits(args.root, version, args.subset)

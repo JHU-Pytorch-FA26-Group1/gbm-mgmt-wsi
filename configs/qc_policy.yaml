@@ -6,7 +6,7 @@
 # any training; export.py builds a modeling list only from a frozen policy.
 # Edge tiles (touching the tissue mask, not more than half tissue) pass only when no rule below rejects
 # or reviews them and they meet all three edge_accept_* cutoffs; the rest go to review.
-version: qc-v3
+version: qc-v4
 sources: [TCGA]            # cohorts this policy decides; CPTAC has its own policy (qc_policy_cptac.yaml) and
                            # export.py gets both policies (one per cohort)
 frozen: false
@@ -37,8 +37,20 @@ pale_slide_saturation_below: 25 # median tissue-tile mean saturation below this
 grandqc: true
 grandqc_min_assessed: 0.5       # tiles with less of their area assessed by GrandQC skip its rules
 oof_review_above: 0.5           # review: out-of-focus fraction above this
-pen_slide_above: 0.01           # a pen slide: pen above this fraction of the slide's labelled pixels ...
-pen_tile_review_above: 0.25     # ... and on pen slides, review a tile with pen above this
+pen_slides:                     # slides whose GrandQC pen calls are applied: marker (or film) confirmed by eye
+  - 5e00fe77-1758-4d0f-b9fc-6cf20c9d09a5   # TCGA-02-0011 marker loop (subset A)
+  - e57f16ea-b9b1-48ed-8997-65dd1dae86a7   # TCGA-02-0085 marker loops (A)
+  - a36fac6a-0c70-4917-8f5f-0aa27c01c120   # TCGA-02-0052 marker outline (A)
+  - d0cdde0d-20cc-4a02-8e2f-d6e980103d0d   # TCGA-27-1832 marker stroke (A)
+  - 313ff83f-aa82-42aa-ae4b-ea0b2dff8fd4   # TCGA-14-0871 marker or label residue at the edge (A)
+  - fda527fa-d822-40b7-929c-815820317973   # TCGA-14-0871 purple film over the tissue, not ink (A)
+  - d653e0f5-954b-47e8-9fd1-a210a093e468   # TCGA-02-0047 green marker (B)
+  - 9171a524-a8d1-48d4-83d9-cb7de0968646   # TCGA-02-0034 red marker (B)
+  - 0af7eabf-001b-49e8-8013-100e2f266bb6   # TCGA-02-0009 teal marker (B)
+  - 7cb93134-9908-4216-a2dd-946549459fcf   # TCGA-27-1831 red marker streak (B)
+  - cfe507fd-a0cf-4346-8237-05376e3fd404   # TCGA-27-1831 grey marker, red pools (B)
+  - 5025d05a-f236-4a88-8354-90e0723f3ac2   # TCGA-27-1831 red streak, blood (B)
+pen_tile_review_above: 0.25     # on listed slides, review a tile with pen above this (set with a non-empty list)
 fold_review_above: null         # review: fold fraction above this (off until spot-checked)
 darkspot_review_above: null     # review: dark-spot fraction above this, not on pale slides (off until spot-checked)
 edge_accept_artifact_below: 0.25  # edge auto-accept also needs fold, dark spot and out of focus each at or below this

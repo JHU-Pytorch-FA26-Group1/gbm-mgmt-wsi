@@ -1,4 +1,4 @@
-# CPTAC QC policy: identical to qc_policy.yaml except that the GrandQC pen rule is off (see pen_* below).
+# CPTAC QC policy: identical to qc_policy.yaml except that the GrandQC pen rule is off (no pen_slides).
 # Run qc.py with --policy configs/qc_policy_cptac.yaml, and pass both policies to export.py.
 # Tile QC decisions for data_prep/qc.py. tile.py stores every tile's scores; this file decides which
 # tiles are used, so changing a value here never requires re-tiling. Bump `version` when you change
@@ -8,7 +8,7 @@
 # any training; export.py builds a modeling list only from a frozen policy.
 # Edge tiles (touching the tissue mask, not more than half tissue) pass only when no rule below rejects
 # or reviews them and they meet all three edge_accept_* cutoffs; the rest go to review.
-version: qc-v3-cptac
+version: qc-v4-cptac
 sources: [CPTAC]           # this policy decides CPTAC only; qc_policy.yaml decides TCGA, and
                            # export.py gets both policies (one per cohort)
 frozen: false
@@ -39,7 +39,7 @@ pale_slide_saturation_below: 25 # median tissue-tile mean saturation below this
 grandqc: true
 grandqc_min_assessed: 0.5       # tiles with less of their area assessed by GrandQC skip its rules
 oof_review_above: 0.5           # review: out-of-focus fraction above this
-pen_slide_above: null           # pen rule OFF for CPTAC: on the 16 CPTAC slides GrandQC called pen slides,
+pen_slides: []                  # pen rule OFF for CPTAC: on the 16 CPTAC slides above 1% GrandQC pen,
 pen_tile_review_above: null     # its pen labels sat on stained tissue with no visible ink (label-free review)
 fold_review_above: null         # review: fold fraction above this (off until spot-checked)
 darkspot_review_above: null     # review: dark-spot fraction above this, not on pale slides (off until spot-checked)
