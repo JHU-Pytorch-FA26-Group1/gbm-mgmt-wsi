@@ -6,12 +6,15 @@
 # any training; export.py builds a modeling list only from a frozen policy.
 # Edge tiles (touching the tissue mask, not more than half tissue) pass only when no rule below rejects
 # or reviews them and they meet all three edge_accept_* cutoffs; the rest go to review.
-version: qc-v4
+version: qc-v5
 sources: [TCGA]            # cohorts this policy decides; CPTAC has its own policy (qc_policy_cptac.yaml) and
                            # export.py gets both policies (one per cohort)
-frozen: false
-reviewer: ""               # who approved the frozen policy
-notes: ""                  # how the cutoffs were chosen (e.g. which pilot slides were reviewed)
+frozen: true
+reviewer: "Tian"               # who approved the frozen policy
+notes: "Blur reject below 100 (agreed on by team). Pen list made by eye from GrandQC candidates with pen
+  fraction above 0.01. Other cutoffs: glass reject above 0.9, blank 0.99, dark mean RGB 50, green 0.02;
+  edge auto-accept at glass below 0.5, blur 100 or above, dark below 0.2 and GrandQC artifacts at or
+  below 0.25; GrandQC out-of-focus review above 0.5; pale slide flag below saturation 25."
 calibration_patients:     # patients whose tiles or thumbnails were viewed to set the rules (any fold);
                           # a record only: export.py keeps them and marks them qc_calibration
   # pen list, half B: GrandQC pen candidates (pen fraction > 0.01) viewed
@@ -43,7 +46,6 @@ calibration_patients:     # patients whose tiles or thumbnails were viewed to se
   # review rules: notebook samples
   - TCGA-02-0001
   - TCGA-19-1387
-  # TODO: patients of the pilot slides used for the blur and other cutoffs
 require_signoff: false     # true: export.py blocks every slide without a sign-off (approve or exclude)
 # Reject:
 max_glass_fraction: 0.9    # more than this fraction of the tile is uncolored glass

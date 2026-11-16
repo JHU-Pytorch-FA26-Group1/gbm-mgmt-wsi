@@ -8,12 +8,12 @@
 # any training; export.py builds a modeling list only from a frozen policy.
 # Edge tiles (touching the tissue mask, not more than half tissue) pass only when no rule below rejects
 # or reviews them and they meet all three edge_accept_* cutoffs; the rest go to review.
-version: qc-v4-cptac
+version: qc-v5-cptac
 sources: [CPTAC]           # this policy decides CPTAC only; qc_policy.yaml decides TCGA, and
                            # export.py gets both policies (one per cohort)
-frozen: false
-reviewer: ""               # who approved the frozen policy
-notes: ""                  # how the cutoffs were chosen (e.g. which pilot slides were reviewed)
+frozen: true
+reviewer: "Tian"               # who approved the frozen policy
+notes: "Same as TCGA but with pen rule off after looking at CPTAC candidate thumbnails"                  # how the cutoffs were chosen (e.g. which pilot slides were reviewed)
 calibration_patients:     # patients whose tiles or thumbnails were viewed to set the rules (any fold);
                           # a record only: export.py keeps them and marks them qc_calibration
   # pen rule off: GrandQC pen candidates (pen fraction > 0.01) viewed as thumbnails, half B
