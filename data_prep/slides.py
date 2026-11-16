@@ -5,6 +5,7 @@ all of them use exactly the same mask, grid and score definitions.
 """
 import hashlib
 import json
+import logging
 import math
 import platform
 from importlib.metadata import PackageNotFoundError, version as package_version
@@ -17,6 +18,15 @@ from skimage.filters import threshold_multiotsu, threshold_otsu
 from tiatoolbox.tools.patchextraction import SlidingWindowPatchExtractor
 from tiatoolbox.tools.tissuemask import OtsuTissueMasker
 from tiatoolbox.wsicore.wsireader import WSIReader
+
+
+def skip_scale_warning(record):
+    """Drop TIAToolbox's "Read: Scale > 1" warning, logged on every read from a slide scanned slightly
+    coarser than target_mpp (open_slide already limits the enlargement to max_upsample_pct)."""
+    return not str(record.msg).startswith("Read: Scale > 1")
+
+
+logging.getLogger().addFilter(skip_scale_warning)   # TIAToolbox logs to the root logger
 
 ROLE_CODES = {"background": 0, "edge": 1, "tissue": 2}
 # --masks-only compares these: (label, method, floor). A floor of None means the config's floor.

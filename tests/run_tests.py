@@ -18,6 +18,7 @@ import csv
 import hashlib
 import io
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -156,6 +157,10 @@ def main():
     check("tile: exit 1 because the too-coarse slide fails", code == 1, code)
     check("tile: too-coarse slide (2% upsampling) not tiled", not common.tiled(root, picks["coarse_bad"], version, sha))
     check("tile: three slides tiled", all(common.tiled(root, picks[n], version, sha) for n in ("mixed", "faint", "coarse_ok")))
+    record = logging.LogRecord("root", logging.WARNING, "", 0, "Read: Scale > 1.This means ...", None, None)
+    check("slides: TIAToolbox's Scale > 1 warning is dropped, other warnings kept",
+          not logging.getLogger().filter(record)
+          and logging.getLogger().filter(logging.LogRecord("root", logging.WARNING, "", 0, "other", None, None)))
 
     row = picks["mixed"]
     h5_path, _, mask_path, csv_path, _ = common.output_paths(root, row, version)
