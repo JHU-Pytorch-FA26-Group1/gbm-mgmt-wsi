@@ -728,9 +728,12 @@ def main():
     packages = work / "packages"
     pkg_a, pkg_b = packages / "A", packages / "B"
     check("package: an incomplete export is refused without --allow-partial",
-          package.main(["--export", str(exp_a), "--out", str(pkg_a), "--log-dir", str(logs)]) == 2 and not pkg_a.exists())
-    code_a = package.main(["--export", str(exp_a), "--out", str(pkg_a), "--allow-partial", "--log-dir", str(logs)])
-    code_b = package.main(["--export", str(exp_b), "--out", str(pkg_b), "--allow-partial", "--log-dir", str(logs)])
+          package.main(["--root", str(root), "--export", str(exp_a), "--out", str(pkg_a), "--log-dir", str(logs)]) == 2
+          and not pkg_a.exists())
+    code_a = package.main(["--root", str(root), "--export", str(exp_a), "--out", str(pkg_a), "--allow-partial",
+                           "--log-dir", str(logs)])
+    code_b = package.main(["--root", str(root), "--export", str(exp_b), "--out", str(pkg_b), "--allow-partial",
+                           "--log-dir", str(logs)])
     manifest_b = json.loads((pkg_b / "package_manifest.json").read_text())
     unstored_b = sum(m["stored"] != "True" for m in read_csv(exp_b / "modeling_patches.csv"))
     check("package: built, every model tile not stored at tiling (edge tiles) reread from its slide and stored",
@@ -742,9 +745,28 @@ def main():
     check("package: every tile stored and readable with only the package",
           len(tiles_a) == len(read_csv(exp_a / "modeling_patches.csv")) and all(ok)
           and set(tiles_a["stored"]) == {True} and loader.verify_package(pkg_a) == [])
+    # patches/ as a link to another drive (review/, state/ and raw/ stay in the root), as on the Mac.
+    drive = work / "drive"
+    drive.mkdir()
+    shutil.move(str(root / "patches"), str(drive / "patches"))
+    (root / "patches").symlink_to(drive / "patches")
+    try:
+        check("loader: export_root keeps the root of an export reached through a patches link",
+              loader.export_root(exp_a) == root and loader.stale_inputs(exp_a, root=root) == [])
+        check("package: refuses a --root the export is not under", package.main(
+            ["--root", str(work), "--export", str(exp_a), "--out", str(packages / "A_wrong"), "--allow-partial",
+             "--log-dir", str(logs)]) == 2 and not (packages / "A_wrong").exists())
+        check("package: an export under a linked patches folder packages with --root", package.main(
+            ["--root", str(root), "--export", str(exp_a), "--out", str(packages / "A_link"), "--allow-partial",
+             "--log-dir", str(logs)]) == 0 and loader.verify_package(packages / "A_link") == [])
+    finally:
+        (root / "patches").unlink()
+        shutil.move(str(drive / "patches"), str(root / "patches"))
+
     review.append_patch_review(root, version, b_edge["patch_id"], "reject", "tests", "background")
     check("package: a stale export is refused", package.main(
-        ["--export", str(exp_b), "--out", str(packages / "B2"), "--allow-partial", "--log-dir", str(logs)]) == 2)
+        ["--root", str(root), "--export", str(exp_b), "--out", str(packages / "B2"), "--allow-partial",
+         "--log-dir", str(logs)]) == 2)
 
     combined = packages / "AB"
     combine_args = ["--parts", f"A={pkg_a}", f"B={pkg_b}", "--out", str(combined), "--log-dir", str(logs)]

@@ -484,7 +484,7 @@ Training runs on several machines, so it reads from a **package**: a portable co
 exactly its model tiles, built on the processing machine:
 
 ```
-python data_prep/package.py --export <root>/patches/tiling-v7/export/qc-v2/B_<time> --out ~/packages/B_qc-v2
+python data_prep/package.py --root <root> --export <root>/patches/tiling-v7/export/qc-v2/B_<time> --out ~/packages/B_qc-v2
 python data_prep/combine.py --parts A=~/packages/A_qc-v2 B=~/packages/B_qc-v2 --out ~/packages/AB_qc-v2
 ```
 

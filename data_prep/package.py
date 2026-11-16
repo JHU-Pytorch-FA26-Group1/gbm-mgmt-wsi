@@ -1,11 +1,13 @@
 """Copy one export and exactly its model tiles into a portable folder for training on any machine.
 
 Examples:
-    python data_prep/package.py --export ~/Bioinformatics/WSI/data/patches/tiling-v7/export/qc-v2/B_<time> \
+    python data_prep/package.py --root ~/Bioinformatics/WSI/data \
+        --export ~/Bioinformatics/WSI/data/patches/tiling-v7/export/qc-v2/B_<time> \
         --out ~/Bioinformatics/WSI/packages/B_qc-v2
-    python data_prep/package.py --export <export folder> --out <new folder> --allow-partial   # a preview
+    python data_prep/package.py --root <root> --export <export folder> --out <new folder> --allow-partial   # a preview
 
-Run it on the processing machine (it needs the data root of the export, and the slides for any model
+Run it on the processing machine (it needs the data root of the export (--root, the one export.py used; the
+export must be under its patches/ folder, which may be a link to another drive), and the slides for any model
 tile that was not stored at tiling: accepted edge tiles, and accepted tissue tiles that fill a slide's
 cap in place of rejected stored ones). The package holds:
   tiles/{source}/{patient_id}/{slide_id}.h5   the model tiles of each slide, PNG bytes copied unchanged
@@ -55,6 +57,7 @@ log = logging.getLogger("package")
 def parse_args(argv=None):
     """Parse command-line options; pass `argv` as a list to test without a shell."""
     parser = argparse.ArgumentParser(description="Package an export and its model tiles.")
+    parser.add_argument("--root", type=Path, required=True, help="data folder the export was made from")
     parser.add_argument("--export", type=Path, required=True, help="export folder written by export.py")
     parser.add_argument("--out", type=Path, required=True, help="new folder for the package")
     parser.add_argument("--allow-partial", action="store_true",
@@ -110,15 +113,18 @@ def write_slide(rows, root, dest, cfg, reader):
 def main(argv=None):
     """Package an export. Returns the process exit code."""
     args = parse_args(argv)
-    export_dir = args.export.expanduser().resolve()
+    root = Path(os.path.abspath(args.root.expanduser()))   # links not followed: patches/ may be on another drive
+    export_dir = Path(os.path.abspath(args.export.expanduser()))
     out = args.out.expanduser().resolve()
     log_path = setup_logging(log, args.log_dir.expanduser().resolve(), "package")
     log.info("Command: %s", " ".join(sys.argv))
     try:
         if loader.folder_kind(export_dir) != "export":
             raise RuntimeError(f"not an export folder: {export_dir}")
+        if not export_dir.resolve().is_relative_to((root / "patches").resolve()):
+            raise RuntimeError(f"export not under {root / 'patches'}")
         settings = json.loads((export_dir / "export_settings.json").read_text())
-        stale = loader.stale_inputs(export_dir)
+        stale = loader.stale_inputs(export_dir, root=root)
         if stale:
             raise RuntimeError(f"export is stale ({'; '.join(stale[:3])}); rerun export.py")
         if not settings["complete"] and not args.allow_partial:
@@ -131,7 +137,6 @@ def main(argv=None):
     except (OSError, RuntimeError, ValueError, KeyError, yaml.YAMLError) as error:
         log.error("%s", error)
         return 2
-    root = loader.export_root(export_dir)
     log.info("Packaging %s (%s, %d model tiles) into %s | log %s", export_dir.name,
              "complete" if settings["complete"] else "PARTIAL", settings["counts"]["model_tiles"], out,
              log_path)

@@ -28,6 +28,7 @@ import csv
 import hashlib
 import io
 import json
+import os
 from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,16 +58,18 @@ def folder_kind(folder):
 
 
 def export_root(export_dir):
-    """The data root of an export folder: <root>/patches/<tiling>/export/<policy>/<subset_time>."""
-    return Path(export_dir).resolve().parents[4]
+    """The data root of an export folder: <root>/patches/<tiling>/export/<policy>/<subset_time>. Links are
+    not followed, so an export reached through a patches/ link to another drive keeps its root."""
+    return Path(os.path.abspath(Path(export_dir).expanduser())).parents[4]
 
 
-def stale_inputs(export_dir, folds_path=DEFAULT_FOLDS):
+def stale_inputs(export_dir, folds_path=DEFAULT_FOLDS, root=None):
     """What changed since an export was written: a list of messages, empty if it is current.
 
     Compares the modeling list and every input export.py recorded (review CSVs, audits, the QC
     record, the fold map) with the files now under the export's data root, including review or
-    audit files added since. Only meaningful on the processing machine.
+    audit files added since. Only meaningful on the processing machine. `root` is the data root (default:
+    worked out from the export's path).
     """
     import export   # same definition of the inputs as export.py
     export_dir = Path(export_dir)
@@ -74,7 +77,7 @@ def stale_inputs(export_dir, folds_path=DEFAULT_FOLDS):
     changes = []
     if sha256_file(export_dir / "modeling_patches.csv") != settings["modeling_sha256"]:
         changes.append("modeling_patches.csv changed")
-    now = export.input_hashes(export_root(export_dir), settings["tiling_version"],
+    now = export.input_hashes(Path(root) if root else export_root(export_dir), settings["tiling_version"],
                               [p["version"] for p in settings["policies"]], settings["subset"], folds_path)
     then = settings["inputs"]
     for key in sorted(set(then) | set(now)):
