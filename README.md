@@ -328,7 +328,7 @@ cohort" below).
 | `fold_review_above`, `darkspot_review_above` | null, null | **Review** a tile with more GrandQC fold or dark spot than this (`gq_fold`, `gq_darkspot`; dark spot is skipped on pale slides). Off until spot-checked. |
 | `edge_accept_artifact_below` | 0.25 | With GrandQC, an edge tile is auto-accepted only if its fold, dark spot and out-of-focus fractions are each at or below this. |
 | `frozen`, `reviewer`, `notes` | false, "", "" | Set `frozen: true`, who approved the values and how they were chosen, once the team agrees them. `export.py` only builds a modeling list from a frozen policy. |
-| `calibration_patients` | [] | Patients whose tiles were viewed to choose the cutoffs: patients of the policy's `sources` in the fold map (TCGA from any fold). CPTAC calibration patients are withheld from the external test. Required when frozen. |
+| `calibration_patients` | [] | Patients whose tiles were viewed to choose the cutoffs: patients of the policy's `sources` in the fold map (any fold, either cohort). A record only: no patient is held out for it (`qc_calibration` in `patient_index.csv`). Required when frozen. |
 | `require_signoff` | false | `true`: `export.py` blocks every slide without a sign-off (approve or exclude), and with it the slide's patient. |
 
 `null` turns an optional review rule off. Use `review_qc.ipynb` to inspect accepted and flagged TCGA
@@ -346,12 +346,10 @@ settings change; `qc.py` refuses to write a different policy into a folder that 
 
 One policy per cohort: to give CPTAC its own policy (for example because its stain colors differ), set
 `sources: [TCGA]` in the TCGA policy and write a CPTAC policy with `sources: [CPTAC]` and its own
-`version`. Reserve a few CPTAC patients for calibrating it before anyone views CPTAC tiles, view only
-those (in `review_qc.ipynb`, `COHORT = "CPTAC"`), and list them in its `calibration_patients`. `export.py`
-withholds every CPTAC calibration patient from the modeling list (`qc_calibration` in `patient_index.csv`):
-they are accounted for, so they do not block the export, but the external test never contains a patient
-whose tiles set a QC cutoff. Report the CPTAC result as tested after QC calibrated on those separate
-patients. Run `qc.py` once per policy and pass both to `export.py`:
+`version`. List the CPTAC patients whose tiles or thumbnails were viewed to set its rules (in
+`review_qc.ipynb`, `COHORT = "CPTAC"`) in its `calibration_patients`. As for TCGA, the list is a record:
+`export.py` keeps those patients in the modeling list and marks them (`qc_calibration` in
+`patient_index.csv`), so the external result can be reported with and without them. Run `qc.py` once per policy and pass both to `export.py`:
 
 ```
 python data_prep/qc.py --root ~/Bioinformatics/WSI/data --subset B
@@ -443,7 +441,6 @@ A tile is included only if:
 - after reviews, its decision is accept (review cases and excluded slides stay out; an edge tile if QC's
   `edge_accept_*` cutoffs or a reviewer accepted it);
 - it is within its slide's cap (below);
-- its patient is not a CPTAC calibration patient of a policy (withheld, `qc_calibration`);
 - its patient is in the shared fold map (`manifests/patient_folds.csv`) and every one of the patient's
   slides in the subset is accounted for: exported, or excluded at sign-off (and, with `require_signoff`,
   every exported slide is approved at sign-off).
@@ -565,7 +562,7 @@ the config and `--slides` guards, GrandQC fractions from synthetic masks (painte
 mask, a mask of the wrong size, the pen-slide list, unassessed tiles), QC rules (blur, green ink, GrandQC
 reasons, edge acceptance, slide flags, frozen-policy
 requirements, the review queue), reviews (including reinstating an edge tile), the export gates and
-accounting (calibration patients, one policy per cohort with CPTAC calibration patients withheld, required
+accounting (calibration patients, one policy per cohort, calibration patients marked but kept, required
 sign-off, the per-slide cap fill order, completeness), roles for
 every fold, stale export detection, packages (unstored tiles reread from their slides, a stale or incomplete export refused, a damaged file caught), combining
 halves A and B, the patient bag sampler, the loader, Macenko, and `run_pipeline.sh`. Set `GBM_PATCHING_DIR` to a folder with

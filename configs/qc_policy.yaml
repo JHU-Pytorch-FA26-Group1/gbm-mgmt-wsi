@@ -12,7 +12,38 @@ sources: [TCGA]            # cohorts this policy decides; CPTAC has its own poli
 frozen: false
 reviewer: ""               # who approved the frozen policy
 notes: ""                  # how the cutoffs were chosen (e.g. which pilot slides were reviewed)
-calibration_patients: []   # TCGA patients whose tiles were viewed to choose the cutoffs (any fold; never CPTAC)
+calibration_patients:     # patients whose tiles or thumbnails were viewed to set the rules (any fold);
+                          # a record only: export.py keeps them and marks them qc_calibration
+  # pen list, half B: GrandQC pen candidates (pen fraction > 0.01) viewed
+  - TCGA-02-0009
+  - TCGA-02-0021
+  - TCGA-02-0034
+  - TCGA-02-0047
+  - TCGA-12-0670
+  - TCGA-12-3648
+  - TCGA-12-3651
+  - TCGA-14-0787
+  - TCGA-14-1827
+  - TCGA-14-1829
+  - TCGA-27-1830
+  - TCGA-27-1831
+  - TCGA-27-2528
+  # pen list, half A: GrandQC pen candidates (pen fraction > 0.01) viewed
+  - TCGA-02-0011
+  - TCGA-02-0052
+  - TCGA-02-0085
+  - TCGA-06-1084
+  - TCGA-12-0822
+  - TCGA-12-0828
+  - TCGA-12-3650
+  - TCGA-14-0786
+  - TCGA-14-0789
+  - TCGA-14-0871
+  - TCGA-27-1832
+  # review rules: notebook samples
+  - TCGA-02-0001
+  - TCGA-19-1387
+  # TODO: patients of the pilot slides used for the blur and other cutoffs
 require_signoff: false     # true: export.py blocks every slide without a sign-off (approve or exclude)
 # Reject:
 max_glass_fraction: 0.9    # more than this fraction of the tile is uncolored glass

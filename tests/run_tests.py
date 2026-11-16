@@ -121,15 +121,16 @@ def main():
     def policy(name, **changes):
         """A copy of configs/qc_policy.yaml with some values changed (GrandQC off unless set). It decides
         both cohorts unless `sources` is set, since the test subset has TCGA and CPTAC slides (the repo's
-        policy is TCGA-only, with CPTAC in qc_policy_cptac.yaml). A changed key that holds a block list
-        (pen_slides) loses its "- item" lines."""
-        changes = {"grandqc": "false", "sources": "[TCGA, CPTAC]", **changes}
+        policy is TCGA-only, with CPTAC in qc_policy_cptac.yaml), and lists no calibration patients unless
+        set. A changed key that holds a block list (pen_slides, calibration_patients) loses its indented
+        lines."""
+        changes = {"grandqc": "false", "sources": "[TCGA, CPTAC]", "calibration_patients": "[]", **changes}
         if changes["sources"] == "[CPTAC]":   # the repo's pen list holds TCGA slides; a CPTAC policy has none
             changes = {"pen_slides": "[]", "pen_tile_review_above": "null", **changes}
         text = (REPO / "configs" / "qc_policy.yaml").read_text()
         lines, replaced = [], False
         for line in text.splitlines():
-            if replaced and line.lstrip().startswith("- "):
+            if replaced and line.startswith("  "):   # the replaced key's block list and comments
                 continue
             key = line.split(":")[0]
             replaced = key in changes
@@ -455,7 +456,7 @@ def main():
           and all(not Path(k).is_absolute() for k in settings["inputs"])
           and settings["counts"]["decided_by"].get("qc", 0) > 0)
 
-    # One QC policy per cohort: TCGA and CPTAC apart; CPTAC calibration patients leave the test.
+    # One QC policy per cohort: TCGA and CPTAC apart; calibration patients are marked, not held out.
     tcga_policy = policy("p_tcga", version="qc-tcga", sources="[TCGA]", frozen="true", reviewer='"tests"',
                          notes='"x"', calibration_patients=calibration)
     cptac_policy = policy("p_cptac", version="qc-cptac", sources="[CPTAC]", frozen="true", reviewer='"tests"',
@@ -475,14 +476,15 @@ def main():
     split_out = sorted((root / "patches" / version / "export" / "qc-tcga+qc-cptac").glob("full_*"))[-1]
     split_index = {r["patient_id"]: r for r in read_csv(split_out / "patient_index.csv")}
     split_settings = json.loads((split_out / "export_settings.json").read_text())
-    withheld = split_index[picks["coarse_ok"]["patient_id"]]
-    check("export: one policy per cohort; a CPTAC calibration patient is withheld from the test, not blocked",
+    marked = split_index[picks["coarse_ok"]["patient_id"]]
+    check("export: one policy per cohort; calibration patients of both cohorts are marked and kept",
           [p["version"] for p in split_settings["policies"]] == ["qc-tcga", "qc-cptac"]
-          and withheld["included"] == "False" and withheld["qc_calibration"] == "True"
-          and withheld["blocked_reasons"] == "" and split_index[row["patient_id"]]["included"] == "True"
-          and split_settings["counts"]["patients_withheld_qc_calibration"] == 1
-          and all(m["source"] == "TCGA" for m in read_csv(split_out / "modeling_patches.csv"))
-          and loader.stale_inputs(split_out) == [], withheld)
+          and marked["included"] == "True" and marked["qc_calibration"] == "True"
+          and split_index[row["patient_id"]]["included"] == "True"
+          and split_index[row["patient_id"]]["qc_calibration"] == "True"
+          and split_settings["counts"]["patients_qc_calibration"] == 2
+          and {m["source"] for m in read_csv(split_out / "modeling_patches.csv")} == {"TCGA", "CPTAC"}
+          and loader.stale_inputs(split_out) == [], marked)
 
     # GrandQC: synthetic masks (all tissue) with painted artifacts; CPTAC has no mask.
     import grandqc
@@ -847,10 +849,10 @@ def review_helper_checks(check, work):
           [s["slide_id"] for s in rh.select_slides(session, None, "bbbb")] == ["bbbb2222-y"]
           and [s["slide_id"] for s in rh.select_slides(session, "TCGA-AA-0001")] == ["aaaa1111-x", "bbbb2222-y"])
     cptac = types.SimpleNamespace(**{**vars(session), "cohort": "CPTAC"})
-    check("review_helper: unknown slide or patient, and PATIENT None for CPTAC, refused",
+    check("review_helper: unknown slide or patient refused; PATIENT None views every CPTAC slide",
           _raises(lambda: rh.select_slides(session, None, "zzzz"))
           and _raises(lambda: rh.select_slides(session, "TCGA-ZZ-9999"))
-          and _raises(lambda: rh.select_slides(cptac, None)))
+          and len(rh.select_slides(cptac, None)) == len(cptac.slides))
     edge, edge_matches = rh.match_tiles(session, slides, role="edge")
     tissue, tissue_matches = rh.match_tiles(session, slides, role="tissue")
     both = rh.match_tiles(session, slides)[1]

@@ -14,7 +14,22 @@ sources: [CPTAC]           # this policy decides CPTAC only; qc_policy.yaml deci
 frozen: false
 reviewer: ""               # who approved the frozen policy
 notes: ""                  # how the cutoffs were chosen (e.g. which pilot slides were reviewed)
-calibration_patients: []   # TCGA patients whose tiles were viewed to choose the cutoffs (any fold; never CPTAC)
+calibration_patients:     # patients whose tiles or thumbnails were viewed to set the rules (any fold);
+                          # a record only: export.py keeps them and marks them qc_calibration
+  # pen rule off: GrandQC pen candidates (pen fraction > 0.01) viewed as thumbnails, half B
+  - C3L-01155
+  - C3L-02504
+  - C3L-03728
+  - C3N-01334
+  # half A
+  - C3L-00677
+  - C3L-01327
+  - C3L-02705
+  - C3L-03387
+  - C3L-03407
+  - C3N-02181
+  - C3N-02770
+  - C3N-02783
 require_signoff: false     # true: export.py blocks every slide without a sign-off (approve or exclude)
 # Reject:
 max_glass_fraction: 0.9    # more than this fraction of the tile is uncolored glass

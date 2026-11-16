@@ -24,9 +24,9 @@ review; with both unset, a blur score of exactly 0 (a flat tile) still goes to r
 A policy applies to the cohorts in its `sources` (TCGA, CPTAC or both); by default one policy serves
 every fold and both cohorts, and qc.py decides only the slides of those cohorts. To give CPTAC its own
 policy, run qc.py once with a TCGA policy and once with a CPTAC policy, and pass both to export.py.
-Calibration patients must be patients of the policy's cohorts in the fold map. TCGA ones may sit in any
-fold (a small label-free leak accepted in exchange for a single policy, so freeze the policy before any
-training); CPTAC ones are withheld from the external test by export.py. slides_<subset>.csv flags
+Calibration patients must be patients of the policy's cohorts in the fold map, from any fold, CPTAC
+included. The list is a record: no patient is held out for having been viewed (a small label-free leak,
+accepted; freeze the policy before any training). slides_<subset>.csv flags
 slides for a sign-off decision (slide_flags): "pale" (median tissue-tile saturation below
 pale_slide_saturation_below), "no_tissue" (no tissue tiles) and "mask_floor" (tile.py raised the tissue
 mask threshold to its floor).
@@ -110,7 +110,7 @@ def load_policy(path=DEFAULT_POLICY):
     """Read and validate the QC policy; return (policy dict, file SHA-256, file text).
 
     A frozen policy must name its reviewer, say in `notes` how its cutoffs were chosen, list its
-    TCGA calibration patients and set blur_reject_below. The edge_accept_* cutoffs are set together or
+    calibration patients and set blur_reject_below. The edge_accept_* cutoffs are set together or
     all null (edge tiles then always go to review). With grandqc: true, grandqc_min_assessed is required;
     pen_slides (a list of unique slide IDs) is non-empty exactly when pen_tile_review_above is set. With
     grandqc: false the GrandQC settings are ignored. validate_pen_slides checks the IDs themselves.
@@ -192,12 +192,6 @@ def validate_calibration(policy, folds):
     invalid = sorted(set(policy["calibration_patients"]) - calibration_patients(folds, policy["sources"]))
     if invalid:
         raise ValueError(f"calibration patients not in the fold map for {policy['sources']}: {invalid}")
-
-
-def withheld_patients(policy, folds):
-    """External (CPTAC) calibration patients: export.py keeps them out of the external test."""
-    return {(source, patient) for (source, patient), fold in folds.items()
-            if fold == "external" and patient in policy["calibration_patients"]}
 
 
 def read_scores(row):

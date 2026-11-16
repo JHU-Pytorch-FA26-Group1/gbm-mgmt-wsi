@@ -17,9 +17,9 @@ A tile is in modeling_patches.csv only if all of these hold:
     accounted for: exported, or explicitly excluded at sign-off. With require_signoff: true in the
     policy, a slide without a sign-off (approve or exclude) blocks its patient.
 Accounting is per patient: a patient with a missing, failed or unaudited slide is listed as blocked,
-without blocking anyone else. A patient with no accepted tiles is listed as an empty bag. A CPTAC patient
-listed as a calibration patient of a policy is withheld (qc_calibration): accounted for, but not in the
-modeling list, so the external test never contains patients whose tiles were used to set QC cutoffs.
+without blocking anyone else. A patient with no accepted tiles is listed as an empty bag. A patient
+listed as a calibration patient of a policy is marked (qc_calibration) and kept like any other patient,
+so a result can be checked with and without them.
 
 One modeling list serves every fold: each row carries the patient's fold, and loader.py marks rows
 train / validation / external for the fold being run. Each slide contributes at most max_tiles_per_slide
@@ -189,7 +189,8 @@ def main(argv=None):
             raise RuntimeError("fold map changed while reading")
         for policy, _, _ in policies:
             qc.validate_calibration(policy, folds)
-        withheld = set().union(*(qc.withheld_patients(p, folds) for p, _, _ in policies))
+        calibration = {key for key in folds for p, _, _ in policies
+                       if key[0] in p["sources"] and key[1] in p["calibration_patients"]}
         _, manifest = load_manifest(args.manifest.expanduser().resolve())
         all_files = manifest["files"]
         for policy, _, _ in policies:
@@ -256,9 +257,7 @@ def main(argv=None):
     for key in by_patient:
         if key not in folds:
             blocked[key].append("not in the fold map")
-    for key in withheld & set(blocked):
-        blocked[key] = []   # withheld from the test anyway, so its slides cannot block it
-    included = {k for k, reasons in blocked.items() if not reasons and k not in withheld}
+    included = {k for k, reasons in blocked.items() if not reasons}
 
     # 2. Tiles: QC decision, then reviews; accepted tiles of included patients go to the model.
     stamp = datetime.now(timezone.utc)
@@ -311,7 +310,7 @@ def main(argv=None):
                           expected_slides=len(slides_),
                           exported_slides=sum(s["status"] == "ok" for s in slides_),
                           excluded_slides=sum(s["status"] == "excluded" for s in slides_),
-                          included=key in included, qc_calibration=key in withheld,
+                          included=key in included, qc_calibration=key in calibration,
                           tissue_tiles=c["tissue_tiles"], accept=c["accept"],
                           review=c["review"], reject=c["reject"],
                           edge_accept=c["edge_accept"], edge_review=c["edge_review"],
@@ -324,7 +323,7 @@ def main(argv=None):
     write_rows(out / "slide_status.csv", status)
     counts = {"patients_expected": len(index), "patients_included": len(included),
               "patients_blocked": sum(bool(r["blocked_reasons"]) for r in index),
-              "patients_withheld_qc_calibration": sum(r["qc_calibration"] for r in index),
+              "patients_qc_calibration": sum(r["qc_calibration"] for r in index),
               "empty_bags": sum(r["empty_bag"] for r in index),
               "model_tiles": sum(r["model_tiles"] for r in index),
               "model_tiles_stored": sum(r["model_tiles_stored"] for r in index),
@@ -353,9 +352,9 @@ def main(argv=None):
     if unmatched:
         log.warning("%d patch reviews match no tile of an exported slide (first: %s)", len(unmatched),
                     unmatched[0])
-    if counts["patients_withheld_qc_calibration"]:
-        log.info("%d CPTAC QC calibration patients withheld from the external test: %s",
-                 counts["patients_withheld_qc_calibration"],
+    if counts["patients_qc_calibration"]:
+        log.info("%d QC calibration patients (kept, marked qc_calibration): %s",
+                 counts["patients_qc_calibration"],
                  ", ".join(r["patient_id"] for r in index if r["qc_calibration"]))
     log.info("%d of %d patients included (%d empty bags); %d model tiles: %d stored, %d unstored tissue, "
              "%d edge (%d accepted tiles beyond the cap left out); %s; written to %s",

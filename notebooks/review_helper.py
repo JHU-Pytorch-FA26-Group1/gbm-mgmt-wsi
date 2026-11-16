@@ -271,15 +271,13 @@ def patient_stats(session, cap=None):
 
 def select_slides(session, patient=None, slide=None):
     """The slides to sample: one slide by the start of its ID (overrides `patient`), one patient's
-    slides, or with `patient` None every slide of the cohort (TCGA only)."""
+    slides, or with `patient` None every slide of the cohort."""
     if slide is not None:
         chosen = [s for s in session.slides if s["slide_id"].startswith(slide)]
         if len(chosen) != 1:
             raise ValueError(f"SLIDE {slide!r} matches {len(chosen)} {session.cohort} slides in this subset.")
         return chosen
     if patient is None:
-        if session.cohort != "TCGA":
-            raise ValueError("PATIENT = None views every patient: TCGA only.")
         print(f"Reading all {len(session.slides)} {session.cohort} slides...")
         return list(session.slides)
     if patient not in session.patients:
