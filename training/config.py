@@ -157,6 +157,12 @@ def load_config(path=DEFAULT_TRAIN_CONFIG, backbone=None, overrides=(), backbone
     return settings, record
 
 
+def repo_path(value):
+    """A config path as absolute; a relative one is relative to the repo, not the cwd."""
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else REPO_ROOT / path
+
+
 def check_pool_limits(settings, tiles_per_patient):
     """Refuse a pool limit above the largest packaged tile count of any patient.
 
