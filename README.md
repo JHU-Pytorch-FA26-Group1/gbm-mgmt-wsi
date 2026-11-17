@@ -563,6 +563,8 @@ python -m training.run train --backbone swin_v2_t --fold 0 --set tiles_per_bag=8
 
 Settings are in `configs/train.yaml`; `configs/backbones/<backbone>.yaml` overrides any of them for one model, and `--set key=value` overrides both for one run. Every key is required, and a comment in the file says where each value comes from (the proposal, the course, the team, or `start` for a starting point to tune). A run writes `metrics.csv`, `predictions.csv` and `run_record.json` into `data/runs/<backbone>_fold<N>_<time>/`; a run with `smoke_train_on_validation=true` trains on its validation patients to show the pipeline runs, and its record says it is not valid for results. `notebooks/experiments.ipynb` launches runs from a table of overrides, then plots the loss and tabulates AUROC; it holds no training logic.
 
+`python -m training.run references` prints a provisional Macenko reference tile for each fold (a seeded random draw, not screened by eye) as lines to paste into `macenko_reference_patch_ids` in `configs/train.yaml`.
+
 Each backbone is one file in `training/backbones/` with `build(settings, pretrained=True)` returning the module and its embedding length for a batch of 224 x 224 tiles. Not built yet: the final refit and CPTAC scoring, the synthetic-data condition, ConvNeXt V2, W&B logging, saved checkpoints, and the threshold rule and bootstrap intervals for the metrics.
 
 ## Tests

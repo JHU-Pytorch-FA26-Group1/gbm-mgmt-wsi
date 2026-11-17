@@ -1,6 +1,7 @@
 """Command line for the training pipeline: python -m training.run <command>.
 
     python -m training.run verify --package data/packages/B_qc-v5
+    python -m training.run references
     python -m training.run train --backbone swin_v2_t --fold 0 [--set key=value ...]
 
 Exit codes: 0 done, 1 problems found, 2 setup or usage problem.
@@ -42,6 +43,25 @@ def train(args):
     return 0
 
 
+def references(args):
+    """Print a provisional Macenko reference tile per fold as config lines; return the exit code."""
+    # pylint: disable=import-outside-toplevel
+    from training import config, experiment, references as chooser
+    try:
+        settings, _ = config.load_config(args.config, "swin_v2_t")
+        package = config.repo_path(settings["package_dir"])
+        with loader.TileReader(package) as reader:
+            chosen = chooser.choose_references(experiment.read_tiles(settings), reader,
+                                               settings["seed"])
+    except (RuntimeError, ValueError, OSError) as error:
+        print(f"cannot choose references: {error}", file=sys.stderr)
+        return 2
+    print("macenko_reference_patch_ids:")
+    for fold, patch_id in chosen.items():
+        print(f'  "{fold}": {patch_id}')
+    return 0
+
+
 def main(argv=None):
     """Run the chosen command and return its exit code."""
     parser = argparse.ArgumentParser(prog="python -m training.run",
@@ -57,7 +77,12 @@ def main(argv=None):
                               metavar="KEY=VALUE", help="override a config key (YAML value)")
     train_parser.add_argument("--device", default="cpu")
     train_parser.add_argument("--name", help="run folder name (default: backbone, fold, UTC time)")
+    references_parser = commands.add_parser("references",
+                                            help="draw provisional Macenko references")
+    references_parser.add_argument("--config", default=DEFAULT_TRAIN_CONFIG)
     args = parser.parse_args(argv)
+    if args.command == "references":
+        return references(args)
     if args.command == "train":
         return train(args)
     return verify(args.package)
