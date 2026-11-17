@@ -552,6 +552,19 @@ returned `record` with the model run. Normalize each tile before augmentation an
 with the same fold reference for training, validation and CPTAC tiles. `normalize_tile` logs a failed
 transform and raises: a raw tile is never passed on as if it had been normalized.
 
+## Training
+
+`training/` trains and evaluates one backbone on one validation fold of TCGA from a package (see "Packages for training"). Copy the package to local disk first with `scripts/fetch_package.sh`, then:
+
+```
+python -m training.run verify --package data/packages/B_qc-v5
+python -m training.run train --backbone swin_v2_t --fold 0 --set tiles_per_bag=8
+```
+
+Settings are in `configs/train.yaml`; `configs/backbones/<backbone>.yaml` overrides any of them for one model, and `--set key=value` overrides both for one run. Every key is required, and a comment in the file says where each value comes from (the proposal, the course, the team, or `start` for a starting point to tune). A run writes `metrics.csv`, `predictions.csv` and `run_record.json` into `data/runs/<backbone>_fold<N>_<time>/`; a run with `smoke_train_on_validation=true` trains on its validation patients to show the pipeline runs, and its record says it is not valid for results. `notebooks/experiments.ipynb` launches runs from a table of overrides, then plots the loss and tabulates AUROC; it holds no training logic.
+
+Each backbone is one file in `training/backbones/` with `build(settings, pretrained=True)` returning the module and its embedding length for a batch of 224 x 224 tiles. Not built yet: the final refit and CPTAC scoring, the synthetic-data condition, ConvNeXt V2, W&B logging, saved checkpoints, and the threshold rule and bootstrap intervals for the metrics.
+
 ## Tests
 
 `tests/run_tests.py` checks the whole pipeline end to end on small synthetic slides
@@ -560,6 +573,7 @@ transform and raises: a raw tile is never passed on as if it had been normalized
 ```
 python tests/run_tests.py           # in the gbm-mgmt environment, from the repo folder
 python tests/run_tests.py --keep    # keep the temporary data folder for inspection
+python -m pytest tests -q           # the training tests (tests/test_training_*.py)
 ```
 
 It covers registering copies, tiling, the resolution limit, the mask floor, lossless storage, the cap,
@@ -589,6 +603,8 @@ data_prep/export.py     modeling list with per-patient accounting
 data_prep/package.py    portable copy of an export with its model tiles
 data_prep/combine.py    join packages (halves A and B)
 data_prep/loader.py     read tiles, patient bags and Macenko per fold, for training code
+training/               train and evaluate a backbone on a fold (python -m training.run)
+notebooks/experiments.ipynb  launch runs from a table of config overrides
 scripts/run_pipeline.sh run the steps in order for one subset
 configs/tiling.yaml     tiling settings
 configs/qc_policy.yaml  tile QC cutoffs
