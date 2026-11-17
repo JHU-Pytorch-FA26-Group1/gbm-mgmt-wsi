@@ -111,12 +111,12 @@ def run_fold(settings, record, fold, run_dir, device="cpu"):  # pylint: disable=
     if settings["mixed_precision"]:
         raise RuntimeError("mixed_precision is not implemented; set it to false")
     run_dir = Path(run_dir)
-    run_dir.mkdir(parents=True, exist_ok=False)
     torch.manual_seed(settings["seed"])
     tiles, groups = data.split_patients(read_tiles(settings), fold,
                                         settings["smoke_train_on_validation"])
     labels = label_tools.read_labels(settings)
     label_tools.check_against_folds(labels, read_folds(config.repo_path(settings["folds_csv"])))
+    run_dir.mkdir(parents=True, exist_ok=False)
     package = config.repo_path(settings["package_dir"])
     plain = data.TilePipeline(package, settings)
     normalizer, normalizer_record = build_normalizer(settings, fold, tiles, plain.reader, run_dir)

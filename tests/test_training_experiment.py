@@ -146,6 +146,17 @@ def test_every_tile_goes_through_the_normalizer(setup, tmp_path, monkeypatch):
     assert calls
 
 
+def test_labels_that_do_not_match_the_fold_map_stop_the_run(setup, tmp_path):
+    """A patient in the fold map without a label must be refused before any run folder exists."""
+    settings, record, _ = setup
+    path = Path(settings["labels_csv"])
+    path.write_text("patient_id,mgmt_status\nT1,Methylated\nT2,Unmethylated\nT3,Unmethylated\n",
+                    encoding="utf-8")
+    with pytest.raises(RuntimeError, match="disagree"):
+        experiment.run_fold(settings, record, 1, tmp_path / "run")
+    assert not (tmp_path / "run").exists()
+
+
 def test_the_reference_is_looked_up_by_fold_name(setup, tmp_path, monkeypatch):
     """The config keys folds as strings, so an integer fold must be converted to find its tile."""
     settings, _, tiles = setup
@@ -229,3 +240,12 @@ def test_a_smoke_run_picks_its_reference_from_training_patients_of_the_real_spli
     smoke = {**settings, "smoke_train_on_validation": True}
     experiment.build_normalizer(smoke, 0, tiles, None, tmp_path)
     assert chosen == ["T2_0"]
+
+
+def test_a_run_that_fails_its_checks_leaves_no_run_folder(setup, tmp_path):
+    """A refused run must not leave an empty folder that later looks like a run."""
+    settings, record, _ = setup
+    bad = {**settings, "labels_csv": str(tmp_path / "missing.csv")}
+    with pytest.raises(OSError):
+        experiment.run_fold(bad, record, 1, tmp_path / "run")
+    assert not (tmp_path / "run").exists()
