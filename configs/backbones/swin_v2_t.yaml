@@ -1,0 +1,3 @@
+# Overrides for swin_v2_t: only the keys that differ from configs/train.yaml.
+# Each override is recorded in the run record.
+{}

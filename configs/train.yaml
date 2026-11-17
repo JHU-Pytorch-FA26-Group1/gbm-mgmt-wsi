@@ -1,0 +1,46 @@
+# Settings shared by both models for training/. Every key is required. The backbone (swin_v2_t or convnext_v2_t) is chosen on the command line;
+# configs/backbones/<backbone>.yaml may override any key below. A comment names where a decision comes from: proposal,
+# class (instructor guidance), team, or start (a starting point with no source, to be tuned).
+
+# --- data ---
+package_dir: data/packages/B_qc-v5         # where scripts/fetch_package.sh puts the package; relative to the repo
+folds_csv: manifests/patient_folds.csv
+labels_csv: manifests/patient_labels.csv
+label_id_column: patient_id
+label_status_column: mgmt_status
+label_methylated_value: Methylated
+label_unmethylated_value: Unmethylated
+seed: 0                                    # same for both models (proposal 3.4); the loader's default
+tiles_per_bag: 64                          # proposal 3.4
+max_tiles_per_patient: null                # training pool; null = every packaged tile. Must not exceed the largest
+                                           # packaged count for any patient (checked when the package is read)
+max_eval_tiles_per_patient: null           # evaluation pool; null = every packaged tile (proposal 3.4)
+jpeg_quality: null                         # null = lossless as packaged; 1-100 re-encodes each tile as JPEG in memory
+smoke_train_on_validation: false           # true = pipeline smoke run; its run record is marked invalid for results
+macenko_reference_patch_ids: {}            # per fold ("0".."4", "final"); {} picks one tile and records it (smoke runs only)
+
+# --- model ---
+attention_hidden: 128                      # start
+attention_dropout: 0.0                     # start
+
+# --- optimization ---
+optimizer: adam                            # class (Sep 16 office hours); the only accepted value
+patients_per_update: 1                     # start; set by GPU memory at the smoke run
+mixed_precision: false                     # start
+scheduler: none                            # proposal 3.5: each rate fixed within its stage; step is the class expectation
+scheduler_step_size: null                  # epochs between decays, needed when scheduler is step
+scheduler_gamma: null                      # decay factor, needed when scheduler is step
+early_stopping_patience: 5                 # class (Oct 7 office hours); null runs every epoch of the stage
+validation_tiles_per_patient: null         # tuning-time validation pool; null = every packaged tile (proposal 3.4)
+
+# One entry per stage: learning_rate and epochs are starting points (proposal 3.5 tunes the rate on TCGA
+# validation; epochs is the cap when early stopping is on); class_weighted follows proposal 3.5.
+stages_real:
+  - {learning_rate: 1.0e-5, epochs: 50, class_weighted: true}
+stages_synthetic:                          # stage 1 on synthetic bags, stage 2 on real (proposal 3.5); not read yet
+  - {learning_rate: 1.0e-5, epochs: 50, class_weighted: true}
+  - {learning_rate: 1.0e-5, epochs: 50, class_weighted: true}
+
+# --- outputs ---
+output_dir: data/runs                      # inside the ignored data/ folder
+wandb_project: null                        # proposal 3.7; validated, not read until W&B logging is built

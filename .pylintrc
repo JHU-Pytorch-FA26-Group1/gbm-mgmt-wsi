@@ -1,0 +1,3 @@
+[MAIN]
+# data_prep modules import each other by bare name, so data_prep must be importable when linting training/.
+init-hook='import sys; sys.path.insert(0, "data_prep")'
