@@ -12,3 +12,7 @@ pyyaml
 scikit-image==0.26.0
 tifffile
 ipywidgets>=8,<9
+torch==2.12.1
+torchvision==0.27.1
+pytest==9.2.0
+pylint==4.1.4
