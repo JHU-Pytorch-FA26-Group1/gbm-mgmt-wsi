@@ -8,6 +8,11 @@ patches/
 *.h5
 *.zarr/
 
+# Downloaded packages and the rclone config (it holds a sign-in token) live in data/; only the
+# placeholder is tracked. The folder's contents are ignored, not the folder, so .gitkeep can be tracked.
+/data/*
+!/data/.gitkeep
+
 # Run logs: ignored by default. Add the ones to submit explicitly:
 #   git add -f logs/<file>.log
 logs/
