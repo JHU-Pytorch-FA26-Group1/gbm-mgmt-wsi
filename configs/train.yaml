@@ -33,6 +33,8 @@ scheduler_gamma: null                      # decay factor, needed when scheduler
 early_stopping_patience: 5                 # class (Oct 7 office hours); null runs every epoch of the stage
 validation_tiles_per_patient: null         # tuning-time validation pool; null = every packaged tile (proposal 3.4)
 
+num_workers: 0                             # start; data-loading processes, kept alive between epochs when above 0
+
 # One entry per stage: learning_rate and epochs are starting points (proposal 3.5 tunes the rate on TCGA
 # validation; epochs is the cap when early stopping is on); class_weighted follows proposal 3.5.
 stages_real:

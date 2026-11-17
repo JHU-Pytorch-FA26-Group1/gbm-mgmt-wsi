@@ -150,13 +150,45 @@ def test_a_bag_has_the_configured_size_and_label_and_repeats_within_an_epoch(pac
     marked, groups = data.split_patients(tiles, 1)
     pipeline = data.TilePipeline(folder, settings)
     dataset = data.BagDataset(marked, groups["train"], {"T1": 1, "T3": 0}, settings, pipeline)
-    bag, label = dataset[0]
+    bag, label = dataset[0, 0]
     assert bag.shape == (4, 3, SIDE, SIDE) and label.item() == 1
-    assert dataset[1][0].shape[0] == 4
-    assert torch.equal(bag, dataset[0][0])
-    first = list(dataset.bag_rows(0)["patch_id"])
-    dataset.set_epoch(1)
-    assert list(dataset.bag_rows(0)["patch_id"]) != first
+    assert dataset[0, 1][0].shape[0] == 4
+    assert torch.equal(bag, dataset[0, 0][0])
+    assert list(dataset.bag_rows(0, 1)["patch_id"]) != list(dataset.bag_rows(0, 0)["patch_id"])
+
+
+def test_the_sampler_covers_every_patient_once_per_epoch_in_a_new_order_each_epoch():
+    """Each pass visits each patient exactly once, tagged with its epoch."""
+    sampler = data.EpochSampler(6, seed=0)
+    assert len(sampler) == 6
+    passes = []
+    for epoch in range(4):
+        sampler.set_epoch(epoch)
+        keys = list(sampler)
+        assert sorted(index for _, index in keys) == list(range(6))
+        assert {tagged for tagged, _ in keys} == {epoch}
+        passes.append([index for _, index in keys])
+    assert len({tuple(order) for order in passes}) > 1
+    sampler.set_epoch(2)
+    assert [index for _, index in sampler] == passes[2]
+
+
+def test_workers_that_outlive_an_epoch_draw_that_epochs_bags(package):
+    """A persistent worker holds a copy of the dataset, so the epoch must come with the index."""
+    folder, tiles = package
+    settings = settings_with()
+    marked, groups = data.split_patients(tiles, 1)
+    dataset = data.BagDataset(marked, groups["train"], {"T1": 1, "T3": 0}, settings,
+                              data.TilePipeline(folder, settings))
+    sampler = data.EpochSampler(len(dataset), settings["seed"])
+    loader = torch.utils.data.DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=1,
+                                         persistent_workers=True,
+                                         multiprocessing_context="spawn")
+    seen = []
+    for epoch in range(2):
+        sampler.set_epoch(epoch)
+        seen.append({float(bag.sum()) for bag, _ in loader})
+    assert seen[0] != seen[1]
 
 
 def test_a_bag_draws_only_from_the_limited_pool(package):
@@ -168,8 +200,7 @@ def test_a_bag_draws_only_from_the_limited_pool(package):
     dataset = data.BagDataset(marked, ["T1"], {"T1": 0}, settings, pipeline)
     pool = set(data.limit_pool(tiles[tiles["patient_id"] == "T1"], 2, 0)["patch_id"])
     for epoch in range(5):
-        dataset.set_epoch(epoch)
-        assert set(dataset.bag_rows(0)["patch_id"]) <= pool
+        assert set(dataset.bag_rows(0, epoch)["patch_id"]) <= pool
 
 
 def test_evaluation_visits_every_pool_tile_once_in_a_fixed_order(package):

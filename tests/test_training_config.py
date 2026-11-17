@@ -82,7 +82,7 @@ def test_same_settings_same_hash_and_a_change_changes_it():
     "max_eval_tiles_per_patient=-5", "jpeg_quality=0", "jpeg_quality=101", "jpeg_quality=90.5",
     "attention_dropout=1", "patients_per_update=0", "seed=-1",
     "mixed_precision=maybe", "macenko_reference_patch_ids={'7': 'x'}",
-    "label_unmethylated_value=Methylated",
+    "label_unmethylated_value=Methylated", "num_workers=-1",
 ])
 def test_bad_values_are_refused(override):
     """Each out-of-range or wrong-type value stops the run."""

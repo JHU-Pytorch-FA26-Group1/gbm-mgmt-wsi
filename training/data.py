@@ -11,7 +11,7 @@ import os
 import numpy as np
 import torch
 from PIL import Image
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 
 import loader
 
@@ -119,8 +119,32 @@ class TilePipeline:
         return to_tensor(rgb)
 
 
+class EpochSampler(Sampler):
+    """Yields (epoch, patient index) in a seeded order that changes every epoch.
+
+    The epoch travels with the index, so workers that outlive an epoch still draw its bags.
+    """
+
+    def __init__(self, count, seed):
+        super().__init__()
+        self.count = count
+        self.seed = seed
+        self.epoch = 0
+
+    def set_epoch(self, epoch):
+        """Choose the epoch the next pass belongs to."""
+        self.epoch = epoch
+
+    def __len__(self):
+        return self.count
+
+    def __iter__(self):
+        order = _rng(self.seed, "order", self.epoch).permutation(self.count)
+        return iter([(self.epoch, int(index)) for index in order])
+
+
 class BagDataset(Dataset):
-    """One patient's bag per item: (tensor [tiles_per_bag, 3, H, W], label)."""
+    """One patient's bag per item, asked for as (epoch, index): (tensor [tiles, 3, H, W], label)."""
 
     def __init__(self, tiles, patients, labels, settings, pipeline):
         pool = tiles[tiles["patient_id"].isin(patients)]
@@ -130,26 +154,21 @@ class BagDataset(Dataset):
         self.seed = settings["seed"]
         self.count = settings["tiles_per_bag"]
         self.pipeline = pipeline
-        self.epoch = 0
-
-    def set_epoch(self, epoch):
-        """Draw the next epoch's bags; call before iterating."""
-        self.epoch = epoch
 
     def __len__(self):
         return len(self.patients)
 
-    def bag_rows(self, index):
-        """The pool rows drawn for patient `index` in the current epoch."""
-        return loader.training_sample(self.tiles, self.patients[index], self.epoch,
+    def bag_rows(self, index, epoch):
+        """The pool rows drawn for patient `index` in `epoch`."""
+        return loader.training_sample(self.tiles, self.patients[index], epoch,
                                       seed=self.seed, count=self.count)
 
-    def __getitem__(self, index):
-        patient = self.patients[index]
-        rows = self.bag_rows(index)
-        tensors = [self.pipeline.tile(row, _rng(self.seed, "augment", self.epoch, row["patch_id"]))
+    def __getitem__(self, key):
+        epoch, index = key
+        rows = self.bag_rows(index, epoch)
+        tensors = [self.pipeline.tile(row, _rng(self.seed, "augment", epoch, row["patch_id"]))
                    for _, row in rows.iterrows()]
-        return torch.stack(tensors), torch.tensor(float(self.labels[patient]))
+        return torch.stack(tensors), torch.tensor(float(self.labels[self.patients[index]]))
 
 
 def evaluation_chunks(tiles, patient, settings, pipeline, batch_size=64):

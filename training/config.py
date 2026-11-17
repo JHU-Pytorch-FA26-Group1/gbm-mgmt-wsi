@@ -28,7 +28,7 @@ FILE_KEYS = {
     "smoke_train_on_validation", "macenko_reference_patch_ids", "attention_hidden",
     "attention_dropout", "optimizer", "patients_per_update", "mixed_precision", "scheduler",
     "scheduler_step_size", "scheduler_gamma", "early_stopping_patience",
-    "validation_tiles_per_patient", "stages_real", "stages_synthetic", "output_dir",
+    "validation_tiles_per_patient", "num_workers", "stages_real", "stages_synthetic", "output_dir",
     "wandb_project",
 }
 KEYS = FILE_KEYS | {"backbone"}
@@ -91,6 +91,7 @@ CHECKS = {
                                      and (s["scheduler"] != "step" or v is not None)),
     "early_stopping_patience": lambda v, s: _is_count_or_none(v),
     "validation_tiles_per_patient": lambda v, s: _is_count_or_none(v),
+    "num_workers": lambda v, s: is_int(v) and v >= 0,
     "stages_real": lambda v, s: _is_stage_list(v, 1),
     "stages_synthetic": lambda v, s: _is_stage_list(v, 2),
     "output_dir": lambda v, s: _is_text(v),
