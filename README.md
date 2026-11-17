@@ -475,8 +475,14 @@ review or audit file has been added since (for example a new review record). Rer
 recording reviews.
 
 `manifests/patient_folds.csv` is the shared fold map for all 234 patients: the 151 TCGA patients in five
-folds (MGMT-stratified, seed 42; labels not stored here) and the 83 CPTAC patients marked `external`.
+folds (MGMT-stratified, seed 42) and the 83 CPTAC patients marked `external`.
 Both subsets and both backbones use the same map.
+
+`manifests/patient_labels.csv` holds the MGMT status of the same 234 patients (`source`, `patient_id`,
+`mgmt_status`: `Methylated` or `Unmethylated`), in the same order as the fold map: 64 methylated and 87
+unmethylated TCGA patients, 32 and 51 for CPTAC. It was built from `TCGA_HnE_MGMT_IDHWT.csv` and
+`CPTAC_HnE_MGMT_IDHWT.csv` in the team's `GBM_MGMT` Google Drive folder (column `mgmt_status`), and its patient
+IDs match the fold map exactly. Tiling, QC and export do not read it; only training and evaluation do.
 
 ## Packages for training
 
