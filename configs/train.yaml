@@ -17,7 +17,12 @@ max_tiles_per_patient: null                # training pool; null = every package
 max_eval_tiles_per_patient: null           # evaluation pool; null = every packaged tile (proposal 3.4)
 jpeg_quality: null                         # null = lossless as packaged; 1-100 re-encodes each tile as JPEG in memory
 smoke_train_on_validation: false           # true = pipeline smoke run; its run record is marked invalid for results
-macenko_reference_patch_ids: {}            # per fold ("0".."4", "final"); {} picks one tile and records it (smoke runs only)
+macenko_reference_patch_ids:               # per fold ("0".."4", "final"); a smoke run with no entry picks one itself
+  "0": TCGA_17912b19589d4ddb_29568_26880   # start: seeded random draw (python -m training.run references), not screened;
+  "1": TCGA_4f512c9ffcce4e9e_32928_14336   # repeat results once the team decides how the reference is chosen
+  "2": TCGA_905f0a6b361a8043_14784_38304
+  "3": TCGA_9e70b5feed8ac138_48608_21952
+  "4": TCGA_610b97f31266a1c9_16352_17024
 
 # --- model ---
 attention_hidden: 128                      # start

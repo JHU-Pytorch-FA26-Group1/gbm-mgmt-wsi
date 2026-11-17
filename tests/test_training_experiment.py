@@ -27,7 +27,7 @@ def fixture_setup(tmp_path, monkeypatch):
         f"{source},{patient},{fold}\n" for patient, (source, fold) in FOLDS.items()))
     overrides = [f"package_dir={package}", f"labels_csv={tmp_path / 'labels.csv'}",
                  f"folds_csv={tmp_path / 'folds.csv'}", "tiles_per_bag=4",
-                 "smoke_train_on_validation=false",
+                 "smoke_train_on_validation=false", "macenko_reference_patch_ids={}",
                  "stages_real=[{learning_rate: 1.0e-3, epochs: 2, class_weighted: true}]"]
     settings, record = config.load_config(backbone="swin_v2_t", overrides=overrides)
 
