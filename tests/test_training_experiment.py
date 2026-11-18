@@ -1,5 +1,6 @@
 """Regression tests for training/experiment.py: a whole run on the small test package."""
 import csv
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -40,7 +41,10 @@ def fixture_setup(tmp_path, monkeypatch):
     monkeypatch.setattr(experiment, "read_tiles", lambda _: tiles)
     monkeypatch.setattr(experiment, "build_normalizer",
                         lambda *args: (None, {"failure_log": str(tmp_path / "f.csv")}))
-    monkeypatch.setattr(experiment, "sha256_file", lambda _: "x")
+    real_hash = experiment.sha256_file
+    monkeypatch.setattr(experiment, "sha256_file",
+                        lambda path: "x" if Path(path).name == "modeling_patches.csv"
+                        else real_hash(path))
     return settings, record, tiles
 
 
@@ -118,6 +122,94 @@ def test_training_workers_stay_alive_and_start_from_the_warm_server(setup, tmp_p
     monkeypatch.setattr(experiment, "DataLoader", spy)
     run_with(setup, tmp_path, num_workers=3)
     assert seen == [(3, True, "forkserver")]
+
+
+def scripted_epochs(monkeypatch, validation_losses):
+    """Make epoch N set every weight to N and report the given validation losses in turn."""
+    epochs = iter(range(1, 100))
+    losses = iter(validation_losses)
+
+    def train_epoch(model, *_):
+        value = float(next(epochs))
+        for parameter in model.parameters():
+            parameter.data.fill_(value)
+        return 0.25
+
+    monkeypatch.setattr(experiment.train, "train_epoch", train_epoch)
+    monkeypatch.setattr(experiment.train, "validation_loss", lambda *args: next(losses))
+
+
+def test_the_checkpoint_holds_the_best_epochs_weights_not_the_last(setup, tmp_path, monkeypatch):
+    """Epoch 1 has the lowest validation loss, so the saved weights are epoch 1's, not epoch 2's."""
+    scripted_epochs(monkeypatch, [0.5, 0.9])
+    run = run_with(setup, tmp_path)
+    weights = torch.load(run / "model.pt")
+    assert weights and all(bool((value == 1.0).all()) for value in weights.values())
+
+
+def test_the_checkpoint_loads_into_a_fresh_model_of_the_same_shape(setup, tmp_path):
+    """The saved file must restore a model built the same way, with no missing or extra weights."""
+    settings, _, _ = setup
+    run = run_with(setup, tmp_path)
+    fresh = models.build_model(settings, "swin_v2_t")
+    fresh.load_state_dict(torch.load(run / "model.pt"))
+
+
+def test_the_record_holds_the_checkpoints_name_and_the_hash_of_its_bytes(setup, tmp_path):
+    """A copy of the file can be verified against the record after it is pulled."""
+    run = run_with(setup, tmp_path)
+    body = json.loads((run / "run_record.json").read_text(encoding="utf-8"))
+    expected = hashlib.sha256((run / "model.pt").read_bytes()).hexdigest()
+    assert body["checkpoint"] == {"file": "model.pt", "sha256": expected}
+
+
+def test_a_run_that_dies_mid_training_leaves_the_best_weights_so_far(setup, tmp_path,
+                                                                  monkeypatch):
+    """The best epoch is saved as it happens, so a crash in epoch 3 keeps epoch 2's weights."""
+    scripted_epochs(monkeypatch, [0.9, 0.5, 0.7])
+    epochs = {"count": 0}
+    fill = experiment.train.train_epoch
+
+    def crash_in_epoch_three(model, *args):
+        epochs["count"] += 1
+        if epochs["count"] == 3:
+            raise RuntimeError("the box died")
+        return fill(model, *args)
+
+    monkeypatch.setattr(experiment.train, "train_epoch", crash_in_epoch_three)
+    stage = [{"learning_rate": 1.0e-3, "epochs": 3, "class_weighted": True}]
+    with pytest.raises(RuntimeError, match="the box died"):
+        run_with(setup, tmp_path, stages_real=stage)
+    weights = torch.load(tmp_path / "run" / "model.pt")
+    assert all(bool((value == 2.0).all()) for value in weights.values())
+
+
+def test_a_crash_while_saving_leaves_the_previous_checkpoint_untouched(tmp_path, monkeypatch):
+    """The file is replaced only once the new one is complete."""
+    model = torch.nn.Linear(2, 2)
+    experiment.save_checkpoint(model, tmp_path)
+    before = (tmp_path / "model.pt").read_bytes()
+
+    def half_written(_, path):
+        Path(path).write_bytes(b"partial")
+        raise OSError("disk full")
+
+    monkeypatch.setattr(experiment.torch, "save", half_written)
+    with pytest.raises(OSError, match="disk full"):
+        experiment.save_checkpoint(torch.nn.Linear(2, 2), tmp_path)
+    assert (tmp_path / "model.pt").read_bytes() == before
+
+
+def test_the_weights_are_saved_before_the_validation_patients_are_scored(setup, tmp_path,
+                                                                       monkeypatch):
+    """A failure while scoring must not cost the trained model."""
+    def refuse(*args):
+        raise RuntimeError("scoring failed")
+
+    monkeypatch.setattr(experiment, "write_predictions", refuse)
+    with pytest.raises(RuntimeError, match="scoring failed"):
+        run_with(setup, tmp_path)
+    assert (tmp_path / "run" / "model.pt").is_file()
 
 
 def test_each_epoch_draws_its_own_bags(setup, tmp_path, monkeypatch):

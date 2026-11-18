@@ -49,12 +49,15 @@ def validation_loss(rows, labels, loss_fn):
     return loss_fn(logits, targets).item()
 
 
-def fit_stage(model, epochs, patience, run_epoch, validate):
+def fit_stage(model, epochs, patience, run_epoch, validate,  # pylint: disable=too-many-arguments
+              *, on_best=None):
     """Run up to `epochs` epochs; stop after `patience` epochs without a better validation loss.
 
     `run_epoch(epoch)` trains and returns the training loss, `validate()` returns the validation
     loss. The model is left at its best epoch. Returns [(epoch, train_loss, validation_loss)] and
-    the best epoch (1-based). Raises if no epoch gave a validation loss to select.
+    the best epoch (1-based). Raises if no epoch gave a validation loss to select. `on_best()`, if
+    given, runs each time an epoch sets a new best, so the best weights can be saved as training
+    goes.
     """
     history, best_loss, best_epoch, best_state = [], math.inf, 0, None
     for epoch in range(1, epochs + 1):
@@ -64,6 +67,8 @@ def fit_stage(model, epochs, patience, run_epoch, validate):
         if loss < best_loss:
             best_loss, best_epoch = loss, epoch
             best_state = copy.deepcopy(model.state_dict())
+            if on_best is not None:
+                on_best()
         elif patience is not None and epoch - best_epoch >= patience:
             break
     if best_state is None:

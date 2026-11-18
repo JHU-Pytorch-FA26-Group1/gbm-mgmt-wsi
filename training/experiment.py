@@ -5,6 +5,7 @@ pool) and run_record.json.
 """
 import csv
 import json
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +21,7 @@ from training import config, data, evaluate, labels as label_tools, models, trai
 METRIC_FIELDS = ("stage", "epoch", "train_loss", "validation_loss", "train_seconds",
                  "validation_seconds", "peak_memory_mb")
 PREDICTION_FIELDS = ("patient_id", "fold", "label", "score")
+CHECKPOINT_FILE = "model.pt"
 
 
 def read_tiles(settings):
@@ -113,8 +115,20 @@ def run_stage(model, stage, index, context):
         return loss
 
     _, best = train.fit_stage(model, stage["epochs"], settings["early_stopping_patience"],
-                              run_epoch, validate)
+                              run_epoch, validate,
+                              on_best=lambda: save_checkpoint(model, context["run_dir"]))
     return best
+
+
+def save_checkpoint(model, run_dir):
+    """Write the model's weights (CHECKPOINT_FILE), on the CPU so they load anywhere.
+
+    The file is replaced in one step, so a crash while saving leaves the previous best intact.
+    """
+    path = Path(run_dir) / CHECKPOINT_FILE
+    partial = path.with_name(path.name + ".tmp")
+    torch.save({name: value.cpu() for name, value in model.state_dict().items()}, partial)
+    os.replace(partial, path)
 
 
 def write_predictions(model, fold, context):
@@ -158,8 +172,10 @@ def run_fold(settings, record, fold, run_dir, device="cpu"):  # pylint: disable=
                           "max_eval_tiles_per_patient": settings["validation_tiles_per_patient"]}}
     best = [run_stage(model, stage, index, context)
             for index, stage in enumerate(settings["stages_real"])]
+    checkpoint = {"file": CHECKPOINT_FILE, "sha256": sha256_file(run_dir / CHECKPOINT_FILE)}
     write_predictions(model, fold, context)
     write_record(run_dir, settings, {"fold": fold, "config": record, "best_epochs": best,
+                                     "checkpoint": checkpoint,
                                      "patients": {role: len(p) for role, p in groups.items()},
                                      "normalizer": normalizer_record,
                                      "seconds": round(time.perf_counter() - started, 1)})

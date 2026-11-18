@@ -110,6 +110,21 @@ def test_training_stops_after_patience_and_returns_the_best_epoch_weights():
     assert model.weight.item() == 3.0
 
 
+def test_the_best_weights_are_handed_over_at_each_new_best_and_only_then():
+    """on_best runs when an epoch beats the best so far, with the model as of that epoch."""
+    model = OneWeight()
+    saved = []
+    losses = iter([5.0, 4.0, 4.5, 3.0, 3.0])
+
+    def run_epoch(epoch):
+        model.weight.data.fill_(float(epoch))
+        return 0.0
+
+    train.fit_stage(model, 5, None, run_epoch, lambda: next(losses),
+                    on_best=lambda: saved.append(model.weight.item()))
+    assert saved == [1.0, 2.0, 4.0]
+
+
 def test_a_tie_keeps_the_earlier_epoch():
     """Equal validation loss is not an improvement, so the first of two equal epochs is kept."""
     model, _, best = run_stage([3.0, 3.0, 5.0], patience=None)
