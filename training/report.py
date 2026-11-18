@@ -40,7 +40,7 @@ def auroc(predictions):
 
 
 def summarize(runs):
-    """One row per run ({name: run folder}): best validation loss, its epoch, AUROC, validity."""
+    """One row per run ({name: run folder}): best validation loss and epoch, AUROC, time, memory."""
     rows = []
     for name, run_dir in runs.items():
         run = load_run(run_dir)
@@ -49,7 +49,11 @@ def summarize(runs):
         rows.append({"run": name, "valid_for_results": run["record"]["valid_for_results"],
                      "best_validation_loss": best["validation_loss"], "best_epoch": best["epoch"],
                      "epochs_run": len(metrics), "validation_patients": len(run["predictions"]),
-                     "auroc": auroc(run["predictions"])})
+                     "auroc": auroc(run["predictions"]),
+                     "seconds_per_epoch": (metrics["train_seconds"]
+                                           + metrics["validation_seconds"]).mean(),
+                     "peak_memory_mb": pd.to_numeric(metrics["peak_memory_mb"],
+                                                     errors="coerce").max()})
     return pd.DataFrame(rows)
 
 

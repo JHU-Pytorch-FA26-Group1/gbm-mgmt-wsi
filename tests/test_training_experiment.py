@@ -146,15 +146,53 @@ def test_validation_and_final_scoring_use_their_own_pool_caps(setup, tmp_path, m
     assert caps == [3, 3, 7]
 
 
-def test_metrics_rows_hold_stage_epoch_train_loss_and_validation_loss(setup, tmp_path,
-                                                                    monkeypatch):
-    """Each column must carry its own value, in the order the header names them."""
+def ticking_clock(monkeypatch, step=2.0, origin=0.0):
+    """Make experiment's clock start at `origin` and advance `step` seconds on every reading."""
+    ticks = iter(range(10 ** 6))
+    monkeypatch.setattr(experiment, "time",
+                        SimpleNamespace(perf_counter=lambda: origin + next(ticks) * step))
+
+
+def test_metrics_rows_hold_every_column_in_header_order(setup, tmp_path, monkeypatch):
+    """Each column must carry its own value: losses, the two phase times and the peak memory."""
     monkeypatch.setattr(experiment.train, "train_epoch", lambda *args, **kwargs: 0.25)
     monkeypatch.setattr(experiment.train, "validation_loss", lambda *args, **kwargs: 0.75)
+    monkeypatch.setattr(experiment, "peak_memory_mb", lambda device: 7.5)
+    ticking_clock(monkeypatch)
     run = run_with(setup, tmp_path)
     assert read(run / "metrics.csv") == [
-        {"stage": "1", "epoch": str(epoch), "train_loss": "0.25", "validation_loss": "0.75"}
+        {"stage": "1", "epoch": str(epoch), "train_loss": "0.25", "validation_loss": "0.75",
+         "train_seconds": "2.0", "validation_seconds": "2.0", "peak_memory_mb": "7.5"}
         for epoch in (1, 2)]
+
+
+def test_the_memory_window_restarts_every_epoch(setup, tmp_path, monkeypatch):
+    """A peak carried over from epoch to epoch would hide which epoch used the memory."""
+    resets = []
+    monkeypatch.setattr(experiment, "reset_peak_memory", resets.append)
+    run_with(setup, tmp_path)
+    assert resets == ["cpu", "cpu"]
+
+
+def test_peak_memory_is_read_only_on_cuda_and_in_megabytes(monkeypatch):
+    """Only CUDA has a peak counter; other devices leave the column empty."""
+    resets = []
+    monkeypatch.setattr(experiment.torch.cuda, "max_memory_allocated", lambda device: 5 * 2 ** 20)
+    monkeypatch.setattr(experiment.torch.cuda, "reset_peak_memory_stats", resets.append)
+    assert experiment.peak_memory_mb("cuda:0") == 5.0
+    assert experiment.peak_memory_mb("cpu") == "" and experiment.peak_memory_mb("mps") == ""
+    experiment.reset_peak_memory("cuda:0")
+    experiment.reset_peak_memory("mps")
+    assert resets == ["cuda:0"]
+
+
+def test_the_record_holds_the_time_the_run_took_not_the_clock_reading(setup, tmp_path,
+                                                                    monkeypatch):
+    """With a clock that starts at 1000 s, the time is end minus start and covers both epochs."""
+    ticking_clock(monkeypatch, step=3.0, origin=1000.0)
+    run = run_with(setup, tmp_path)
+    body = json.loads((run / "run_record.json").read_text(encoding="utf-8"))
+    assert 2 * (3.0 + 3.0) <= body["seconds"] < 1000.0
 
 
 def test_every_tile_goes_through_the_normalizer(setup, tmp_path, monkeypatch):

@@ -5,6 +5,7 @@ pool) and run_record.json.
 """
 import csv
 import json
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,7 +17,8 @@ import loader
 from common import read_folds, sha256_file
 from training import config, data, evaluate, labels as label_tools, models, train
 
-METRIC_FIELDS = ("stage", "epoch", "train_loss", "validation_loss")
+METRIC_FIELDS = ("stage", "epoch", "train_loss", "validation_loss", "train_seconds",
+                 "validation_seconds", "peak_memory_mb")
 PREDICTION_FIELDS = ("patient_id", "fold", "label", "score")
 
 
@@ -56,6 +58,19 @@ def append_row(path, fields, row):
         writer.writerow(row)
 
 
+def reset_peak_memory(device):
+    """Start a new peak-memory window; only CUDA keeps a peak counter."""
+    if str(device).startswith("cuda"):
+        torch.cuda.reset_peak_memory_stats(device)
+
+
+def peak_memory_mb(device):
+    """Most CUDA memory allocated since `reset_peak_memory`, in MB; empty on other devices."""
+    if str(device).startswith("cuda"):
+        return round(torch.cuda.max_memory_allocated(device) / 2 ** 20, 1)
+    return ""
+
+
 def make_scheduler(settings, optimizer):
     """The learning rate scheduler named in the config, or None."""
     if settings["scheduler"] == "none":
@@ -75,21 +90,26 @@ def run_stage(model, stage, index, context):
     pending = {}   # run_epoch hands its epoch and loss to validate, which writes the metrics row
 
     def run_epoch(epoch):
+        reset_peak_memory(context["device"])
         context["sampler"].set_epoch(epoch)
+        started = time.perf_counter()
         loss = train.train_epoch(model, context["loader"], optimizer, loss_fn,
                                  settings["patients_per_update"])
         if scheduler is not None:
             scheduler.step()
-        pending.update(epoch=epoch, train_loss=loss)
+        pending.update(epoch=epoch, train_loss=loss, train_seconds=time.perf_counter() - started)
         return loss
 
     def validate():
+        started = time.perf_counter()
         rows = evaluate.predict(model, context["tiles"], groups["validation"], context["capped"],
                                 context["pipeline"], device=context["device"],
                                 num_workers=settings["num_workers"])
         loss = train.validation_loss(rows, labels, loss_fn)
         append_row(context["run_dir"] / "metrics.csv", METRIC_FIELDS,
-                   (index + 1, pending["epoch"], pending["train_loss"], loss))
+                   (index + 1, pending["epoch"], pending["train_loss"], loss,
+                    round(pending["train_seconds"], 1), round(time.perf_counter() - started, 1),
+                    peak_memory_mb(context["device"])))
         return loss
 
     _, best = train.fit_stage(model, stage["epochs"], settings["early_stopping_patience"],
@@ -113,6 +133,7 @@ def run_fold(settings, record, fold, run_dir, device="cpu"):  # pylint: disable=
     if settings["mixed_precision"]:
         raise RuntimeError("mixed_precision is not implemented; set it to false")
     run_dir = Path(run_dir)
+    started = time.perf_counter()
     torch.manual_seed(settings["seed"])
     tiles, groups = data.split_patients(read_tiles(settings), fold,
                                         settings["smoke_train_on_validation"])
@@ -141,7 +162,8 @@ def run_fold(settings, record, fold, run_dir, device="cpu"):  # pylint: disable=
     write_predictions(model, fold, context)
     write_record(run_dir, settings, {"fold": fold, "config": record, "best_epochs": best,
                                      "patients": {role: len(p) for role, p in groups.items()},
-                                     "normalizer": normalizer_record})
+                                     "normalizer": normalizer_record,
+                                     "seconds": round(time.perf_counter() - started, 1)})
     return run_dir
 
 

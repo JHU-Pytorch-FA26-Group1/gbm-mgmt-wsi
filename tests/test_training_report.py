@@ -12,7 +12,8 @@ def make_run(folder, scores, labels, valid=True):
     """A finished-run folder holding two epochs of metrics and the given predictions."""
     folder.mkdir()
     (folder / "metrics.csv").write_text(
-        "stage,epoch,train_loss,validation_loss\n1,1,0.9,0.8\n1,2,0.7,0.6\n1,3,0.5,0.7\n",
+        "stage,epoch,train_loss,validation_loss,train_seconds,validation_seconds,peak_memory_mb\n"
+        "1,1,0.9,0.8,10.0,2.0,\n1,2,0.7,0.6,10.0,4.0,\n1,3,0.5,0.7,10.0,6.0,\n",
         encoding="utf-8")
     rows = "".join(f"P{i},0,{label},{score}\n"
                    for i, (score, label) in enumerate(zip(scores, labels)))
@@ -32,6 +33,19 @@ def test_summary_reports_the_best_epoch_and_the_auroc_of_the_predictions(tmp_pat
     assert table.loc["perfect", "best_validation_loss"] == pytest.approx(0.6)
     assert table.loc["perfect", "auroc"] == 1.0 and table.loc["inverted", "auroc"] == 0.0
     assert bool(table.loc["inverted", "valid_for_results"]) is False
+
+
+def test_summary_reports_time_per_epoch_and_the_largest_peak_memory(tmp_path):
+    """Epoch time covers training and validation; memory is the largest peak, blank on non-CUDA."""
+    run = make_run(tmp_path / "a", [0.9, 0.1], [1, 0])
+    table = report.summarize({"run": run})
+    assert table.loc[0, "seconds_per_epoch"] == pytest.approx(((12 + 14 + 16) / 3))
+    assert table["peak_memory_mb"].isna().all()
+    cuda = make_run(tmp_path / "b", [0.9, 0.1], [1, 0])
+    text = (cuda / "metrics.csv").read_text(encoding="utf-8")
+    text = text.replace("2.0,\n", "2.0,1500.5\n", 1).replace("6.0,\n", "6.0,900.0\n", 1)
+    (cuda / "metrics.csv").write_text(text, encoding="utf-8")
+    assert report.summarize({"run": cuda}).loc[0, "peak_memory_mb"] == 1500.5
 
 
 def test_a_fold_with_one_class_has_no_auroc_rather_than_an_error(tmp_path):
