@@ -6,6 +6,7 @@ trip, Macenko, augmentation (training only), then tensor normalization.
 """
 import hashlib
 import io
+import multiprocessing
 import os
 
 import numpy as np
@@ -17,6 +18,22 @@ import loader
 
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+
+def worker_context(workers):
+    """The start method for loader workers: None without workers, else a forkserver.
+
+    Workers forked from a server that already imported torch and TIAToolbox start in seconds; with
+    spawn each one re-imports them, and with fork they crashed on macOS with HDF5 files open. Each
+    worker keeps its math libraries to one thread, since a container reports the host's cores.
+    """
+    if not workers:
+        return None
+    for name in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ.setdefault(name, "1")
+    multiprocessing.set_forkserver_preload(["torch", "numpy", "pandas", "h5py", "PIL",
+                                            "tiatoolbox.tools.stainnorm", "training.data"])
+    return "forkserver"
 
 
 def _rng(*parts):

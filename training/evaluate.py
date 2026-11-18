@@ -14,10 +14,9 @@ def predict(model, tiles, patients, settings, pipeline, *, device="cpu",  # pyli
     if len(set(patients)) != len(patients):
         raise ValueError("a patient is listed twice; its tiles would be pooled together")
     model = model.to(device).eval()
-    # spawn, not fork: forked workers crashed on macOS with HDF5 files already open
     chunks = DataLoader(data.EvalChunks(tiles, patients, settings, pipeline, batch_size),
                         batch_size=None, num_workers=num_workers,
-                        multiprocessing_context="spawn" if num_workers else None)
+                        multiprocessing_context=data.worker_context(num_workers))
     embeddings = {patient: [] for patient in patients}
     with torch.no_grad():
         for patient, chunk in chunks:

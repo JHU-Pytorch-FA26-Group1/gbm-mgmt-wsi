@@ -147,10 +147,9 @@ def run_fold(settings, record, fold, run_dir, device="cpu"):  # pylint: disable=
     dataset = data.BagDataset(tiles, groups["train"], labels, settings, pipeline)
     sampler = data.EpochSampler(len(dataset), settings["seed"])
     workers = settings["num_workers"]
-    # spawn, not fork: forked workers crashed on macOS with HDF5 files already open
     batches = DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=workers,
                          persistent_workers=workers > 0,
-                         multiprocessing_context="spawn" if workers else None)
+                         multiprocessing_context=data.worker_context(workers))
     model = models.build_model(settings, settings["backbone"]).to(device)
     context = {"settings": settings, "tiles": tiles, "groups": groups, "labels": labels,
                "pipeline": pipeline, "sampler": sampler, "loader": batches,

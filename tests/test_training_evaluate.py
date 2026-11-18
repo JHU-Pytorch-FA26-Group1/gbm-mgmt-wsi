@@ -79,7 +79,7 @@ def test_every_chunk_is_scored_under_its_own_patient_with_workers(scored):
 
 
 def test_the_worker_count_and_start_method_reach_the_loader(scored, monkeypatch):
-    """Workers must start with spawn: fork crashed on macOS with HDF5 files already open."""
+    """Workers must use the warm-server start method, not the slow default."""
     tiles, settings, pipeline, model = scored
     seen = []
     real = evaluate.DataLoader
@@ -91,7 +91,7 @@ def test_the_worker_count_and_start_method_reach_the_loader(scored, monkeypatch)
     monkeypatch.setattr(evaluate, "DataLoader", spy)
     evaluate.predict(model, tiles, ["T1"], settings, pipeline, num_workers=3)
     evaluate.predict(model, tiles, ["T1"], settings, pipeline)
-    assert seen == [(3, "spawn"), (0, None)]
+    assert seen == [(3, "forkserver"), (0, None)]
 
 
 def test_a_failed_normalization_stops_scoring_in_a_worker_too(scored, tmp_path):

@@ -104,6 +104,22 @@ def test_the_worker_count_reaches_validation_and_final_scoring_and_the_record(se
     assert body["num_workers"] == 2
 
 
+def test_training_workers_stay_alive_and_start_from_the_warm_server(setup, tmp_path, monkeypatch):
+    """The training loader keeps its workers between epochs and starts them as scoring does."""
+    seen = []
+    real_loader = experiment.DataLoader
+
+    def spy(dataset, **kwargs):
+        seen.append((kwargs["num_workers"], kwargs["persistent_workers"],
+                     kwargs["multiprocessing_context"]))
+        return real_loader(dataset, **{**kwargs, "num_workers": 0, "persistent_workers": False,
+                                       "multiprocessing_context": None})
+
+    monkeypatch.setattr(experiment, "DataLoader", spy)
+    run_with(setup, tmp_path, num_workers=3)
+    assert seen == [(3, True, "forkserver")]
+
+
 def test_each_epoch_draws_its_own_bags(setup, tmp_path, monkeypatch):
     """The sampler must be told the epoch, or every epoch would reuse the same bags."""
     epochs = []

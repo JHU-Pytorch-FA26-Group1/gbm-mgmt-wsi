@@ -183,12 +183,39 @@ def test_workers_that_outlive_an_epoch_draw_that_epochs_bags(package):
     sampler = data.EpochSampler(len(dataset), settings["seed"])
     loader = torch.utils.data.DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=1,
                                          persistent_workers=True,
-                                         multiprocessing_context="spawn")
+                                         multiprocessing_context=data.worker_context(1))
     seen = []
     for epoch in range(2):
         sampler.set_epoch(epoch)
         seen.append({float(bag.sum()) for bag, _ in loader})
     assert seen[0] != seen[1]
+
+
+def test_no_workers_means_no_start_method_and_no_server(monkeypatch):
+    """Without workers nothing should be started or preloaded."""
+    preloaded = []
+    monkeypatch.setattr(data.multiprocessing, "set_forkserver_preload", preloaded.append)
+    assert data.worker_context(0) is None
+    assert not preloaded
+
+
+def test_workers_start_from_a_server_that_already_imported_the_slow_modules(monkeypatch):
+    """Each spawned worker re-imported TIAToolbox, about 10 s apiece, one after another."""
+    preloaded = []
+    monkeypatch.setattr(data.multiprocessing, "set_forkserver_preload", preloaded.append)
+    assert data.worker_context(4) == "forkserver"
+    assert "training.data" in preloaded[0] and "tiatoolbox.tools.stainnorm" in preloaded[0]
+
+
+def test_workers_keep_their_math_libraries_to_one_thread_unless_told_otherwise(monkeypatch):
+    """A container reports the host's cores, so every worker would start that many threads."""
+    monkeypatch.setattr(data.multiprocessing, "set_forkserver_preload", lambda modules: None)
+    monkeypatch.delenv("OPENBLAS_NUM_THREADS", raising=False)
+    monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
+    monkeypatch.setenv("MKL_NUM_THREADS", "4")
+    data.worker_context(2)
+    assert os.environ["OPENBLAS_NUM_THREADS"] == "1" and os.environ["OMP_NUM_THREADS"] == "1"
+    assert os.environ["MKL_NUM_THREADS"] == "4"
 
 
 def test_a_bag_draws_only_from_the_limited_pool(package):
