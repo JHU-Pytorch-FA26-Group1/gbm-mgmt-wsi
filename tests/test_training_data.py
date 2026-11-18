@@ -77,7 +77,7 @@ def test_a_training_tile_is_augmented_and_an_evaluation_tile_is_not(package):
     plain = pipeline.tile(row)
     assert any(not torch.equal(pipeline.tile(row, np.random.default_rng(seed)), plain)
                for seed in range(8))
-    evaluated = next(iter(data.evaluation_chunks(tiles, "T1", settings, pipeline, batch_size=1)))
+    _, evaluated = data.EvalChunks(tiles, ["T1"], settings, pipeline, batch_size=1)[0]
     first = tiles[tiles["patient_id"] == "T1"].sort_values(["slide_id", "y_target", "x_target"])
     assert torch.equal(evaluated[0], pipeline.tile(first.iloc[0]))
 
@@ -208,10 +208,10 @@ def test_evaluation_visits_every_pool_tile_once_in_a_fixed_order(package):
     folder, tiles = package
     settings = settings_with("max_eval_tiles_per_patient=7")
     pipeline = data.TilePipeline(folder, settings)
-    first = list(data.evaluation_chunks(tiles, "T1", settings, pipeline, batch_size=3))
-    second = list(data.evaluation_chunks(tiles, "T1", settings, pipeline, batch_size=3))
-    assert [len(chunk) for chunk in first] == [3, 3, 1]
-    assert all(torch.equal(a, b) for a, b in zip(first, second))
+    first = data.EvalChunks(tiles, ["T1"], settings, pipeline, batch_size=3)
+    second = data.EvalChunks(tiles, ["T1"], settings, pipeline, batch_size=3)
+    assert [len(first[i][1]) for i in range(len(first))] == [3, 3, 1]
+    assert all(torch.equal(first[i][1], second[i][1]) for i in range(len(first)))
 
 
 def test_a_forked_process_gets_its_own_reader(package, monkeypatch):

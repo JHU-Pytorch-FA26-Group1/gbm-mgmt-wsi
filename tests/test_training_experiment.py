@@ -83,6 +83,27 @@ def test_training_stops_early_when_validation_stops_improving(setup, tmp_path, m
     assert len(read(run / "metrics.csv")) == 2
 
 
+def test_the_worker_count_reaches_validation_and_final_scoring_and_the_record(setup, tmp_path,
+                                                                             monkeypatch):
+    """Both scoring paths must receive num_workers, and the run record must say what was used."""
+    seen = []
+    original = experiment.evaluate.predict
+
+    def spy(model, tiles, patients, settings, pipeline, **kwargs):
+        seen.append(kwargs["num_workers"])
+        return original(model, tiles, patients, settings, pipeline, device=kwargs["device"])
+
+    monkeypatch.setattr(experiment.evaluate, "predict", spy)
+    real_loader = experiment.DataLoader
+    monkeypatch.setattr(experiment, "DataLoader", lambda dataset, **kwargs: real_loader(
+        dataset, **{**kwargs, "num_workers": 0, "persistent_workers": False,
+                    "multiprocessing_context": None}))
+    run = run_with(setup, tmp_path, num_workers=2)
+    assert seen == [2, 2, 2]
+    body = json.loads((run / "run_record.json").read_text(encoding="utf-8"))
+    assert body["num_workers"] == 2
+
+
 def test_each_epoch_draws_its_own_bags(setup, tmp_path, monkeypatch):
     """The sampler must be told the epoch, or every epoch would reuse the same bags."""
     epochs = []

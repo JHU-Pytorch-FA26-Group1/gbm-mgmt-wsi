@@ -171,9 +171,24 @@ class BagDataset(Dataset):
         return torch.stack(tensors), torch.tensor(float(self.labels[self.patients[index]]))
 
 
-def evaluation_chunks(tiles, patient, settings, pipeline, batch_size=64):
-    """Yield the patient's whole pool, once and in a fixed order, as tensors [n, 3, H, W]."""
-    pool = limit_pool(tiles[tiles["patient_id"] == patient], settings["max_eval_tiles_per_patient"],
-                      settings["seed"])
-    for chunk in loader.evaluation_batches(pool, patient, batch_size):
-        yield torch.stack([pipeline.tile(row) for _, row in chunk.iterrows()])
+class EvalChunks(Dataset):
+    """Each patient's evaluation pool in a fixed order; item i is (patient, tensor [n, 3, H, W]).
+
+    A loader with workers returns items in order, so scoring with workers matches scoring without.
+    """
+
+    def __init__(self, tiles, patients, settings, pipeline, batch_size=64):
+        self.chunks = []
+        for patient in patients:
+            pool = limit_pool(tiles[tiles["patient_id"] == patient],
+                              settings["max_eval_tiles_per_patient"], settings["seed"])
+            self.chunks.extend((patient, chunk)
+                               for chunk in loader.evaluation_batches(pool, patient, batch_size))
+        self.pipeline = pipeline
+
+    def __len__(self):
+        return len(self.chunks)
+
+    def __getitem__(self, index):
+        patient, rows = self.chunks[index]
+        return patient, torch.stack([self.pipeline.tile(row) for _, row in rows.iterrows()])

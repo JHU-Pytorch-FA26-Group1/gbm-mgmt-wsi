@@ -85,7 +85,8 @@ def run_stage(model, stage, index, context):
 
     def validate():
         rows = evaluate.predict(model, context["tiles"], groups["validation"], context["capped"],
-                                context["pipeline"], device=context["device"])
+                                context["pipeline"], device=context["device"],
+                                num_workers=settings["num_workers"])
         loss = train.validation_loss(rows, labels, loss_fn)
         append_row(context["run_dir"] / "metrics.csv", METRIC_FIELDS,
                    (index + 1, pending["epoch"], pending["train_loss"], loss))
@@ -100,7 +101,8 @@ def write_predictions(model, fold, context):
     """Score each validation patient (pool capped by max_eval_tiles_per_patient); write the CSV."""
     settings, labels = context["settings"], context["labels"]
     rows = evaluate.predict(model, context["tiles"], context["groups"]["validation"], settings,
-                            context["pipeline"], device=context["device"])
+                            context["pipeline"], device=context["device"],
+                            num_workers=settings["num_workers"])
     for patient, _, probability in rows:
         append_row(context["run_dir"] / "predictions.csv", PREDICTION_FIELDS,
                    (patient, fold, labels[patient], probability))
@@ -124,6 +126,7 @@ def run_fold(settings, record, fold, run_dir, device="cpu"):  # pylint: disable=
     dataset = data.BagDataset(tiles, groups["train"], labels, settings, pipeline)
     sampler = data.EpochSampler(len(dataset), settings["seed"])
     workers = settings["num_workers"]
+    # spawn, not fork: forked workers crashed on macOS with HDF5 files already open
     batches = DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=workers,
                          persistent_workers=workers > 0,
                          multiprocessing_context="spawn" if workers else None)
@@ -149,7 +152,7 @@ def write_record(run_dir, settings, facts):
         **facts, "condition": "real",
         "valid_for_results": not settings["smoke_train_on_validation"],
         "modeling_sha256": sha256_file(package / "modeling_patches.csv"),
-        "seed": settings["seed"],
+        "seed": settings["seed"], "num_workers": settings["num_workers"],
         "library_versions": {"torch": torch.__version__, "torchvision": torchvision.__version__},
         "finished_at_utc": datetime.now(timezone.utc).isoformat(),
     }
