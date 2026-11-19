@@ -1,0 +1,10 @@
+# Backbone configuration for ConvNeXt V2-Tiny
+backbone: convnext_v2_t
+model_name: convnextv2_tiny.fcmae_ft_in22k_in1k
+embedding_dim: 768
+pretrained: true
+
+# Preprocessing & Normalization (Standard ImageNet specs matching Swin)
+image_size: 224
+mean: [0.485, 0.456, 0.406]
+std: [0.229, 0.224, 0.225]
