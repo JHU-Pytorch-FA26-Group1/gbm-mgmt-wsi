@@ -13,9 +13,9 @@ p.add_argument("--repo", type=Path, required=True)
 p.add_argument("--batch", type=Path, required=True)
 p.add_argument("--shard", type=int, choices=(0, 1), required=True)
 p.add_argument("--out", type=Path, required=True)
-p.add_argument("--blur-reject-below", type=float, choices=(50, 100), default=100)
+p.add_argument("--blur-reject-below", type=float, choices=(20, 50, 100), default=100)
 a = p.parse_args()
-protocol = "synthetic-light-v2" if a.blur_reject_below == 50 else "synthetic-light-v1"
+protocol = {100: "synthetic-light-v1", 50: "synthetic-light-v2", 20: "synthetic-light-v3"}[a.blur_reject_below]
 repo, batch = a.repo.resolve(), a.batch.resolve()
 sys.path.insert(0, str(repo / "data_prep"))
 
