@@ -59,6 +59,14 @@ def test_jpeg_quality_accepts_both_ends_of_its_range():
         assert load(overrides=[f"jpeg_quality={quality}"])[0]["jpeg_quality"] == quality
 
 
+def test_crop_scale_and_color_jitter_accept_a_fraction_or_off():
+    """null turns each off; 1 is the top of the range."""
+    settings, _ = load(overrides=["crop_scale=0.5", "color_jitter=1"])
+    assert (settings["crop_scale"], settings["color_jitter"]) == (0.5, 1)
+    settings, _ = load()
+    assert settings["crop_scale"] is None and settings["color_jitter"] is None
+
+
 def test_overrides_are_read_as_yaml():
     """Command-line overrides read their value as YAML and are recorded."""
     settings, record = load(overrides=["max_tiles_per_patient=1000", "jpeg_quality=90",
@@ -81,6 +89,7 @@ def test_same_settings_same_hash_and_a_change_changes_it():
     "tiles_per_bag=0", "max_tiles_per_patient=0", "max_tiles_per_patient=true",
     "max_eval_tiles_per_patient=-5", "jpeg_quality=0", "jpeg_quality=101", "jpeg_quality=90.5",
     "attention_dropout=1", "patients_per_update=0", "seed=-1",
+    "crop_scale=0", "crop_scale=1.5", "color_jitter=0", "color_jitter=-0.2",
     "mixed_precision=maybe", "macenko_reference_patch_ids={'7': 'x'}",
     "label_unmethylated_value=Methylated", "num_workers=-1",
 ])

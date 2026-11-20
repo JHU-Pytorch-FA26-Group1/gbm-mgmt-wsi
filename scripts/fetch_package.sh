@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Copy a package from OneDrive to local disk with rclone.
+# Copy a package from OneDrive or Google Drive to local disk with rclone.
 #
 # Usage:
 #   scripts/fetch_package.sh --login
+#   scripts/fetch_package.sh --login --src "gdrive:643-deep-learning-project/packages/B_qc-v5"
 #   scripts/fetch_package.sh --src "jh-onedrive:GBM_packages/B_qc-v5" [--dry-run]
 #
 # Options:
@@ -61,6 +62,8 @@ if [[ $login -eq 1 ]]; then
         if [[ "$remote" == "jh-onedrive" && -f "$template" ]]; then
             add_template=1
             cmd=(rclone config reconnect "${remote}:")
+        elif [[ "$remote" == "gdrive" ]]; then
+            cmd=(rclone config create "$remote" drive scope=drive.readonly)
         else
             cmd=(rclone config create "$remote" onedrive)
         fi

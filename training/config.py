@@ -25,6 +25,7 @@ FILE_KEYS = {
     "package_dir", "folds_csv", "labels_csv", "label_id_column", "label_status_column",
     "label_methylated_value", "label_unmethylated_value", "seed", "tiles_per_bag",
     "max_tiles_per_patient", "max_eval_tiles_per_patient", "jpeg_quality",
+    "crop_scale", "color_jitter",
     "smoke_train_on_validation", "macenko_reference_patch_ids", "attention_hidden",
     "attention_dropout", "optimizer", "patients_per_update", "mixed_precision", "scheduler",
     "scheduler_step_size", "scheduler_gamma", "early_stopping_patience",
@@ -45,6 +46,11 @@ def _is_text(value):
 def _is_count_or_none(value):
     """A whole number >= 1, or None."""
     return value is None or (is_int(value) and value >= 1)
+
+
+def _is_fraction_or_none(value):
+    """A number in (0, 1], or None."""
+    return value is None or (is_num(value) and 0 < value <= 1)
 
 
 def _is_stage(value):
@@ -77,6 +83,8 @@ CHECKS = {
     "max_tiles_per_patient": lambda v, s: _is_count_or_none(v),
     "max_eval_tiles_per_patient": lambda v, s: _is_count_or_none(v),
     "jpeg_quality": lambda v, s: v is None or (is_int(v) and 1 <= v <= 100),
+    "crop_scale": lambda v, s: _is_fraction_or_none(v),
+    "color_jitter": lambda v, s: _is_fraction_or_none(v),
     "smoke_train_on_validation": lambda v, s: _is_bool(v),
     "macenko_reference_patch_ids": lambda v, s: _is_reference_map(v),
     "attention_hidden": lambda v, s: is_int(v) and v >= 1,

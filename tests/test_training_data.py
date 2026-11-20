@@ -134,6 +134,48 @@ def test_augmentation_only_rearranges_pixels():
     assert len(seen) > 1
 
 
+def test_a_crop_keeps_the_tile_size_and_changes_the_content():
+    """Cropping 25% to 100% of the area still returns a full-size tile that is not just flipped."""
+    rgb = np.random.default_rng(4).integers(0, 256, (16, 16, 3), dtype=np.uint8)
+    cropped = [data.augment(rgb, np.random.default_rng(seed), crop_scale=0.25)
+               for seed in range(10)]
+    assert all(out.shape == rgb.shape and out.dtype == np.uint8 for out in cropped)
+    assert any(not np.array_equal(out, data.augment(rgb, np.random.default_rng(seed)))
+               for seed, out in enumerate(cropped))
+
+
+def test_the_optional_steps_leave_the_flip_and_turn_unchanged():
+    """A crop of the full area changes nothing, so the baseline's flip and turn must still match."""
+    rgb = np.random.default_rng(4).integers(0, 256, (16, 16, 3), dtype=np.uint8)
+    for seed in range(10):
+        plain = data.augment(rgb, np.random.default_rng(seed))
+        assert np.array_equal(data.augment(rgb, np.random.default_rng(seed), crop_scale=1.0), plain)
+
+
+def test_color_jitter_changes_values_within_its_strength():
+    """A flat gray tile changes color under jitter, and a small strength moves it only a little."""
+    gray = np.full((8, 8, 3), 128, dtype=np.uint8)
+    small = [data.augment(gray, np.random.default_rng(seed), color_jitter=0.1)
+             for seed in range(20)]
+    large = [data.augment(gray, np.random.default_rng(seed), color_jitter=0.8)
+             for seed in range(20)]
+    assert any(not np.array_equal(out, gray) for out in small)
+    assert max(np.abs(out.astype(int) - 128).max() for out in small) < max(
+        np.abs(out.astype(int) - 128).max() for out in large)
+
+
+def test_crop_and_jitter_settings_reach_the_training_tile(package):
+    """The pipeline passes both settings to augment; off, the tile is the baseline's."""
+    folder, tiles = package
+    row = tiles[tiles["patient_id"] == "T1"].iloc[0]
+    base = data.TilePipeline(folder, settings_with())
+    for override in ("crop_scale=0.25", "color_jitter=0.5"):
+        changed = data.TilePipeline(folder, settings_with(override))
+        assert any(not torch.equal(changed.tile(row, np.random.default_rng(seed)),
+                                   base.tile(row, np.random.default_rng(seed)))
+                   for seed in range(8)), override
+
+
 def test_tensor_is_channels_first_and_keeps_rgb_order():
     """Red-only pixels must land in channel 0, or ImageNet statistics hit the wrong colors."""
     rgb = np.zeros((4, 5, 3), dtype=np.uint8)

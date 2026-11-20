@@ -2,16 +2,18 @@
 
 A pool is a patient's packaged tiles after any per-patient limit; a bag is the tiles drawn from the
 pool for one patient in one epoch. A tile goes through: read and hash-check, optional JPEG round
-trip, Macenko, augmentation (training only), then tensor normalization.
+trip, Macenko, augmentation (training only; color jitter acts after Macenko), then tensor
+normalization.
 """
 import hashlib
 import io
+import math
 import multiprocessing
 import os
 
 import numpy as np
 import torch
-from PIL import Image
+from PIL import Image, ImageEnhance
 from torch.utils.data import Dataset, Sampler
 
 import loader
@@ -85,13 +87,40 @@ def jpeg_round_trip(rgb, quality):
     return np.asarray(Image.open(io.BytesIO(buffer.getvalue())).convert("RGB"))
 
 
-def augment(rgb, rng):
-    """A random flip and quarter turn: tissue has no orientation, and no pixel value changes."""
+def _crop(rgb, rng, min_scale):
+    """A random crop of min_scale to 1 of the tile's area, resized back to the tile's size."""
+    height, width = rgb.shape[:2]
+    side = math.sqrt(rng.uniform(min_scale, 1.0))
+    crop_h, crop_w = max(1, round(height * side)), max(1, round(width * side))
+    top = int(rng.integers(height - crop_h + 1))
+    left = int(rng.integers(width - crop_w + 1))
+    patch = Image.fromarray(rgb[top:top + crop_h, left:left + crop_w])
+    return np.asarray(patch.resize((width, height), Image.Resampling.BILINEAR))
+
+
+def _jitter(rgb, rng, strength):
+    """Brightness, contrast and saturation, each scaled by a factor in 1 +- strength."""
+    image = Image.fromarray(rgb)
+    for enhancer in (ImageEnhance.Brightness, ImageEnhance.Contrast, ImageEnhance.Color):
+        image = enhancer(image).enhance(rng.uniform(1 - strength, 1 + strength))
+    return np.asarray(image)
+
+
+def augment(rgb, rng, crop_scale=None, color_jitter=None):
+    """A random flip and quarter turn, then the optional crop and color jitter.
+
+    The flip and turn draw first, so a tile gets the same ones with the optional steps on or off.
+    """
     if rng.random() < 0.5:
         rgb = rgb[:, ::-1]
     if rng.random() < 0.5:
         rgb = rgb[::-1]
-    return np.ascontiguousarray(np.rot90(rgb, int(rng.integers(4))))
+    rgb = np.ascontiguousarray(np.rot90(rgb, int(rng.integers(4))))
+    if crop_scale is not None:
+        rgb = _crop(rgb, rng, crop_scale)
+    if color_jitter is not None:
+        rgb = _jitter(rgb, rng, color_jitter)
+    return rgb
 
 
 def to_tensor(rgb):
@@ -100,7 +129,7 @@ def to_tensor(rgb):
     return torch.from_numpy(np.ascontiguousarray(scaled.transpose(2, 0, 1)))
 
 
-class TilePipeline:
+class TilePipeline:  # pylint: disable=too-many-instance-attributes
     """Reads and processes tiles for one process; the reader is rebuilt after a fork."""
 
     def __init__(self, package, settings, normalizer=None, failure_log=None):
@@ -108,6 +137,8 @@ class TilePipeline:
             raise ValueError("a normalizer needs a failure_log, so failed tiles are recorded")
         self.package = package
         self.jpeg_quality = settings["jpeg_quality"]
+        self.crop_scale = settings["crop_scale"]
+        self.color_jitter = settings["color_jitter"]
         self.seed = settings["seed"]
         self.normalizer = normalizer
         self.failure_log = failure_log
@@ -132,7 +163,7 @@ class TilePipeline:
         if self.normalizer is not None:
             rgb = loader.normalize_tile(self.normalizer, rgb, row["patch_id"], self.failure_log)
         if rng is not None:
-            rgb = augment(rgb, rng)
+            rgb = augment(rgb, rng, self.crop_scale, self.color_jitter)
         return to_tensor(rgb)
 
 

@@ -16,6 +16,10 @@ max_tiles_per_patient: null                # training pool; null = every package
                                            # packaged count for any patient (checked when the package is read)
 max_eval_tiles_per_patient: null           # evaluation pool; null = every packaged tile (proposal 3.4)
 jpeg_quality: null                         # null = lossless as packaged; 1-100 re-encodes each tile as JPEG in memory
+crop_scale: null                           # start (Experiment C, team chat Nov 18); null = no crop; else the smallest fraction of
+                                           # the tile's area a random crop keeps (0-1), resized back to the tile
+color_jitter: null                         # start (Experiment C, team chat Nov 18); null = off; else brightness, contrast and
+                                           # saturation each scaled by a factor in 1 +- this (0-1), after Macenko
 smoke_train_on_validation: false           # true = pipeline smoke run; its run record is marked invalid for results
 macenko_reference_patch_ids:               # per fold ("0".."4", "final"); a smoke run with no entry picks one itself
   "0": TCGA_17912b19589d4ddb_29568_26880   # start: seeded random draw (python -m training.run references), not screened;
