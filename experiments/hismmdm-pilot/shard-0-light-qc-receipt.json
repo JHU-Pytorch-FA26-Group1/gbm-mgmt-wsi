@@ -1,0 +1,142 @@
+{
+  "protocol": "synthetic-light-v1",
+  "complete": true,
+  "shard": 0,
+  "command": [
+    "/workspace/persist/crivas4-microscopy/gbm-mgmt-wsi/experiments/hismmdm-pilot/qc_synthetics_light.py",
+    "--repo",
+    "/workspace/persist/crivas4-microscopy/gbm-mgmt-wsi",
+    "--batch",
+    "/workspace/persist/crivas4-microscopy/GBM_MGMT/hismmdm-pilot/fold-0-balanced-4000",
+    "--shard",
+    "0",
+    "--out",
+    "/workspace/persist/crivas4-microscopy/GBM_MGMT/hismmdm-pilot/fold-0-balanced-4000/qc/synthetic-light-v1/shard-0-20261120-052013"
+  ],
+  "created_at": "2026-11-20T05:20:28.796375+00:00",
+  "batch": "/workspace/persist/crivas4-microscopy/GBM_MGMT/hismmdm-pilot/fold-0-balanced-4000",
+  "images": 2000,
+  "counts": {
+    "reject": 1499,
+    "accept": 500,
+    "review": 1
+  },
+  "counts_by_source_mgmt_class": {
+    "methylated": {
+      "reject": 750,
+      "accept": 249,
+      "review": 1
+    },
+    "unmethylated": {
+      "reject": 749,
+      "accept": 251
+    }
+  },
+  "parent_policy_sha256": "c6cc4942ff8128ddc6b04697fe706747f27973ae2b059ee6381513e6764ff523",
+  "tiling_sha256": "0695c646d30a161c32d6cf6a13a163b0c4e7acddea8bb78b4d477232f8adc274",
+  "effective_policy": {
+    "version": "synthetic-light-v1",
+    "sources": [
+      "TCGA"
+    ],
+    "frozen": false,
+    "reviewer": "Tian",
+    "notes": "Pixel-only derivative of TCGA qc-v5; no new GrandQC inference or slide/edge rules.",
+    "calibration_patients": [
+      "TCGA-02-0009",
+      "TCGA-02-0021",
+      "TCGA-02-0034",
+      "TCGA-02-0047",
+      "TCGA-12-0670",
+      "TCGA-12-3648",
+      "TCGA-12-3651",
+      "TCGA-14-0787",
+      "TCGA-14-1827",
+      "TCGA-14-1829",
+      "TCGA-27-1830",
+      "TCGA-27-1831",
+      "TCGA-27-2528",
+      "TCGA-02-0011",
+      "TCGA-02-0052",
+      "TCGA-02-0085",
+      "TCGA-06-1084",
+      "TCGA-12-0822",
+      "TCGA-12-0828",
+      "TCGA-12-3650",
+      "TCGA-14-0786",
+      "TCGA-14-0789",
+      "TCGA-14-0871",
+      "TCGA-27-1832",
+      "TCGA-02-0001",
+      "TCGA-19-1387"
+    ],
+    "require_signoff": false,
+    "max_glass_fraction": 0.9,
+    "blank_fraction": 0.99,
+    "blur_reject_below": 100,
+    "blur_review_below": null,
+    "dark_mean_rgb": 50,
+    "glass_review_above": null,
+    "pale_review_below": null,
+    "pale_value_above": 180,
+    "dark_fraction_review_above": null,
+    "green_fraction_review_above": 0.02,
+    "edge_accept_glass_below": 0.5,
+    "edge_accept_blur_above": 100,
+    "edge_accept_dark_below": 0.2,
+    "pale_slide_saturation_below": 25,
+    "grandqc": false,
+    "grandqc_min_assessed": 0.5,
+    "oof_review_above": 0.5,
+    "pen_slides": [
+      "5e00fe77-1758-4d0f-b9fc-6cf20c9d09a5",
+      "e57f16ea-b9b1-48ed-8997-65dd1dae86a7",
+      "a36fac6a-0c70-4917-8f5f-0aa27c01c120",
+      "d0cdde0d-20cc-4a02-8e2f-d6e980103d0d",
+      "313ff83f-aa82-42aa-ae4b-ea0b2dff8fd4",
+      "fda527fa-d822-40b7-929c-815820317973",
+      "d653e0f5-954b-47e8-9fd1-a210a093e468",
+      "9171a524-a8d1-48d4-83d9-cb7de0968646",
+      "0af7eabf-001b-49e8-8013-100e2f266bb6",
+      "7cb93134-9908-4216-a2dd-946549459fcf",
+      "cfe507fd-a0cf-4346-8237-05376e3fd404",
+      "5025d05a-f236-4a88-8354-90e0723f3ac2"
+    ],
+    "pen_tile_review_above": 0.25,
+    "fold_review_above": null,
+    "darkspot_review_above": null,
+    "edge_accept_artifact_below": 0.25
+  },
+  "manifest_sha256": "746831f5e13341792d957eebbc792df705c0ec80edaf8ba00d11fa046d07f861",
+  "completed_sha256": "fee9b59ac793d8272de2e4660d2d2221c9ae666c51c0e2c69f4771f45e0a13ee",
+  "batch_run_sha256": "4a99dc0683036fb11f984c7b5288e94cebd7763ee4bdbab9af813a9971fc6a80",
+  "batch_plan_sha256": "004595c9496cf611eb46312b9e6dd9d421f2ac63354f0d7155c66245802b10f3",
+  "folds_sha256": "1b4a8e95ac94ede497feb9ed875674d0e27454dd29f5fbbef24ffa8f7333acc7",
+  "repo_commit": "70d7756c191958b503f89b6f4eace44f35a312a2",
+  "code_sha256": {
+    "/workspace/persist/crivas4-microscopy/gbm-mgmt-wsi/data_prep/qc.py": "cd38a32ab72fa2eed50d8cc2da72ca69a34a3aaee823cdfc475484ed5c6e0d80",
+    "/workspace/persist/crivas4-microscopy/gbm-mgmt-wsi/data_prep/slides.py": "d8359da6810ad8f6c253253802b2709f8e69324f3e5df9ab785fc8d1da17bc3a",
+    "/workspace/persist/crivas4-microscopy/gbm-mgmt-wsi/data_prep/common.py": "e93fd99576118dc666c90d407ddcb9468c6b9255eb96f7491e91c18c92779b86",
+    "/workspace/persist/crivas4-microscopy/gbm-mgmt-wsi/data_prep/grandqc.py": "c8930cbd8c9d13daeedb8ab64452618bd0d9bf5f7ecc0970f1868a85f76b838f",
+    "/workspace/persist/crivas4-microscopy/gbm-mgmt-wsi/data_prep/download.py": "786468e12c4ec1b420bb580cc2a6ecaf13ab53fc9304b95609d92a1337b29ab1",
+    "/workspace/persist/crivas4-microscopy/gbm-mgmt-wsi/experiments/hismmdm-pilot/qc_synthetics_light.py": "ba3f7e53e0c8ac7bddce106ae87911b451cf6304ffd640735109403199b4099a"
+  },
+  "output_sha256": {
+    "decisions.csv": "9c2602fc39af3c430723965949a6375e443ffd000f9a6db3818edb8372d5ecb5",
+    "accepted.csv": "180e54878fdf70ca83c72b8cc1950dd58ac8c7e91ac68a30d3a10a9736690911",
+    "review_queue.csv": "c94148c080fbffd94174c6432ac7ed84f011a4a110492d6fce1fdbdb43f1a515"
+  },
+  "runtime": {
+    "python": "3.12.3 (main, Feb  4 2025, 14:48:35) [GCC 13.3.0]",
+    "numpy": "2.2.6",
+    "opencv": "4.11.0",
+    "pillow": "12.1.1"
+  },
+  "omitted": [
+    "new GrandQC inference",
+    "slide flags and signoffs",
+    "edge-specific decisions"
+  ],
+  "image_policy": "Existing 224-pixel classifier images; no resizing, modification or deletion by QC",
+  "training_eligibility": "Unchanged; pixel acceptance does not certify MGMT biology or authorize training"
+}
