@@ -3,6 +3,7 @@
     python -m training.run verify --package data/packages/B_qc-v5
     python -m training.run references
     python -m training.run train --backbone swin_v2_t --fold 0 [--set key=value ...]
+    python -m training.run train --backbone swin_v2_t --fold final [--set key=value ...]
 
 Exit codes: 0 done, 1 problems found, 2 setup or usage problem.
 """
@@ -27,8 +28,17 @@ def verify(package):
     return 1 if problems else 0
 
 
+def fold_argument(text):
+    """A fold from the command line: 0 to 4, or "final"."""
+    if text == "final":
+        return text
+    if text in ("0", "1", "2", "3", "4"):
+        return int(text)
+    raise argparse.ArgumentTypeError(f"fold must be 0 to 4 or final: {text}")
+
+
 def train(args):
-    """Train one validation fold and print the run folder; return the exit code."""
+    """Train one validation fold or the final fit and print the run folder; return the exit code."""
     # pylint: disable=import-outside-toplevel
     from training import config, experiment
     try:
@@ -69,9 +79,11 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
     verify_parser = commands.add_parser("verify", help="rehash a package against its manifest")
     verify_parser.add_argument("--package", required=True, help="package or combined folder")
-    train_parser = commands.add_parser("train", help="train the real-only condition on one fold")
+    train_parser = commands.add_parser("train", help="train the real-only condition on a fold "
+                                                     "or the final fit")
     train_parser.add_argument("--backbone", required=True, choices=["swin_v2_t", "convnext_v2_t"])
-    train_parser.add_argument("--fold", required=True, type=int, choices=range(5))
+    train_parser.add_argument("--fold", required=True, type=fold_argument,
+                              help="validation fold 0 to 4, or final (all TCGA, scored on CPTAC)")
     train_parser.add_argument("--config", default=DEFAULT_TRAIN_CONFIG)
     train_parser.add_argument("--set", dest="overrides", action="append", default=[],
                               metavar="KEY=VALUE", help="override a config key (YAML value)")

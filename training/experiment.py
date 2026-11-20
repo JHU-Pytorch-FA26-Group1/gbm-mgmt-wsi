@@ -1,7 +1,8 @@
-"""One training run on one validation fold: stages, early stopping, and the files it leaves behind.
+"""One training run on one validation fold, or the final fit: the files it leaves behind.
 
-A run folder holds metrics.csv (one row per epoch), predictions.csv (validation patients, whole
-pool) and run_record.json.
+A run folder holds metrics.csv (one row per epoch), predictions.csv (the validation patients, or
+CPTAC for the final fit) and run_record.json. The final fit (fold "final") trains on every TCGA
+patient for the configured number of epochs, with no validation and no early stopping.
 """
 import csv
 import json
@@ -31,6 +32,25 @@ def read_tiles(settings):
     return tiles
 
 
+def fit_final_normalizer(folder, reference_patch_id, reader):
+    """(Macenko normalizer, record) for the final fit, where any TCGA tile can be the reference."""
+    from tiatoolbox.tools.stainnorm import MacenkoNormalizer  # pylint: disable=import-outside-toplevel
+    folder = Path(folder)
+    match = loader.load_modeling(folder, allow_partial=True)
+    match = match[match["patch_id"] == reference_patch_id]
+    if len(match) != 1 or match.iloc[0]["source"] != "TCGA":
+        raise ValueError(f"{reference_patch_id} is not a TCGA tile")
+    reference = match.iloc[0]
+    normalizer = MacenkoNormalizer()
+    normalizer.fit(reader.read(reference).copy())   # Macenko may modify its input array
+    return normalizer, {"fold": "final", "reference_patch_id": reference_patch_id,
+                        "reference_patient": reference["patient_id"], "folder": str(folder),
+                        "modeling_sha256": sha256_file(folder / "modeling_patches.csv"),
+                        "stain_matrix_target": normalizer.stain_matrix_target.tolist(),
+                        "maxC_target": normalizer.maxC_target.tolist(),
+                        "fitted_at_utc": datetime.now(timezone.utc).isoformat()}
+
+
 def build_normalizer(settings, fold, tiles, reader, run_dir):
     """(Macenko normalizer, its record) for `fold`, fitted on the configured reference tile.
 
@@ -44,7 +64,10 @@ def build_normalizer(settings, fold, tiles, reader, run_dir):
         train_rows = train_rows[(train_rows["role"] == "train") & (train_rows["source"] == "TCGA")]
         reference = sorted(train_rows["patch_id"])[0]
     folder = config.repo_path(settings["package_dir"])
-    normalizer, record = loader.fit_fold_normalizer(folder, fold, reference, reader)
+    if fold == "final":
+        normalizer, record = fit_final_normalizer(folder, reference, reader)
+    else:
+        normalizer, record = loader.fit_fold_normalizer(folder, fold, reference, reader)
     record["failure_log"] = str(Path(run_dir) / "normalization_failures.csv")
     return normalizer, record
 
@@ -82,7 +105,7 @@ def make_scheduler(settings, optimizer):
 
 
 def run_stage(model, stage, index, context):
-    """Train one stage with early stopping; return its best epoch."""
+    """Train one stage (the final fit runs a fixed epoch count); return its best epoch."""
     settings, groups, labels = context["settings"], context["groups"], context["labels"]
     optimizer = torch.optim.Adam(model.parameters(), lr=stage["learning_rate"])
     scheduler = make_scheduler(settings, optimizer)
@@ -114,6 +137,14 @@ def run_stage(model, stage, index, context):
                     peak_memory_mb(context["device"])))
         return loss
 
+    if context["final"]:
+        train.fit_fixed(stage["epochs"], run_epoch, lambda epoch, loss: append_row(
+            context["run_dir"] / "metrics.csv", METRIC_FIELDS,
+            (index + 1, epoch, loss, "", round(pending["train_seconds"], 1), "",
+             peak_memory_mb(context["device"]))))
+        save_checkpoint(model, context["run_dir"])
+        return stage["epochs"]
+
     _, best = train.fit_stage(model, stage["epochs"], settings["early_stopping_patience"],
                               run_epoch, validate,
                               on_best=lambda: save_checkpoint(model, context["run_dir"]))
@@ -132,9 +163,10 @@ def save_checkpoint(model, run_dir):
 
 
 def write_predictions(model, fold, context):
-    """Score each validation patient (pool capped by max_eval_tiles_per_patient); write the CSV."""
+    """Score the validation patients (CPTAC for the final fit), pool capped by the eval cap."""
     settings, labels = context["settings"], context["labels"]
-    rows = evaluate.predict(model, context["tiles"], context["groups"]["validation"], settings,
+    patients = context["groups"]["external" if fold == "final" else "validation"]
+    rows = evaluate.predict(model, context["tiles"], patients, settings,
                             context["pipeline"], device=context["device"],
                             num_workers=settings["num_workers"])
     for patient, _, probability in rows:
@@ -146,6 +178,8 @@ def run_fold(settings, record, fold, run_dir, device="cpu"):  # pylint: disable=
     """Train the real-only condition on validation fold `fold` and write the run folder."""
     if settings["mixed_precision"]:
         raise RuntimeError("mixed_precision is not implemented; set it to false")
+    if fold == "final" and settings["smoke_train_on_validation"]:
+        raise RuntimeError("the final fit has no validation patients to smoke on")
     run_dir = Path(run_dir)
     started = time.perf_counter()
     torch.manual_seed(settings["seed"])
@@ -167,14 +201,15 @@ def run_fold(settings, record, fold, run_dir, device="cpu"):  # pylint: disable=
     model = models.build_model(settings, settings["backbone"]).to(device)
     context = {"settings": settings, "tiles": tiles, "groups": groups, "labels": labels,
                "pipeline": pipeline, "sampler": sampler, "loader": batches,
-               "run_dir": run_dir, "device": device,
+               "run_dir": run_dir, "device": device, "final": fold == "final",
                "capped": {**settings,
                           "max_eval_tiles_per_patient": settings["validation_tiles_per_patient"]}}
     best = [run_stage(model, stage, index, context)
             for index, stage in enumerate(settings["stages_real"])]
     checkpoint = {"file": CHECKPOINT_FILE, "sha256": sha256_file(run_dir / CHECKPOINT_FILE)}
     write_predictions(model, fold, context)
-    write_record(run_dir, settings, {"fold": fold, "config": record, "best_epochs": best,
+    write_record(run_dir, settings, {"fold": fold, "config": record,
+                                     "epochs" if fold == "final" else "best_epochs": best,
                                      "checkpoint": checkpoint,
                                      "patients": {role: len(p) for role, p in groups.items()},
                                      "normalizer": normalizer_record,

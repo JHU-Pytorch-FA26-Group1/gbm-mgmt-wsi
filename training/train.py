@@ -75,3 +75,9 @@ def fit_stage(model, epochs, patience, run_epoch, validate,  # pylint: disable=t
         raise RuntimeError("no epoch gave a finite validation loss to select")
     model.load_state_dict(best_state)
     return history, best_epoch
+
+
+def fit_fixed(epochs, run_epoch, on_epoch):
+    """Run exactly `epochs` epochs with no validation; `on_epoch(epoch, loss)` follows each."""
+    for epoch in range(1, epochs + 1):
+        on_epoch(epoch, run_epoch(epoch))

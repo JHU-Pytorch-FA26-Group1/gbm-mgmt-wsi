@@ -2,6 +2,8 @@
 import hashlib
 import json
 
+import pytest
+
 import loader
 from training import run
 
@@ -79,6 +81,23 @@ def test_train_passes_the_fold_device_name_and_overrides_to_the_run(monkeypatch)
     assert seen["tiles_per_bag"] == 8 and seen["fold"] == 3 and seen["device"] == "cuda"
     assert seen["run_dir"].name == "r"
     assert seen["record"]["overrides"] == {"tiles_per_bag": 8, "seed": 4}
+
+
+def test_the_final_fit_is_selected_with_fold_final(monkeypatch):
+    """`--fold final` reaches run_fold as the string "final", and run names say so."""
+    from training import experiment  # pylint: disable=import-outside-toplevel
+    seen = []
+    monkeypatch.setattr(experiment, "run_fold", lambda *args: seen.append(args))
+    assert run.main(["train", "--backbone", "swin_v2_t", "--fold", "final"]) == 0
+    assert seen[0][2] == "final" and seen[0][3].name.startswith("swin_v2_t_foldfinal_")
+
+
+@pytest.mark.parametrize("fold", ["5", "-1", "2.5", "last", ""])
+def test_a_fold_that_is_not_0_to_4_or_final_is_refused(fold):
+    """argparse stops with exit 2 before anything is read or trained."""
+    with pytest.raises(SystemExit) as stop:
+        run.main(["train", "--backbone", "swin_v2_t", "--fold", fold])
+    assert stop.value.code == 2
 
 
 def test_a_refused_config_value_is_a_setup_problem():

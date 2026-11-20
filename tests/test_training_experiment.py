@@ -254,6 +254,118 @@ def test_validation_and_final_scoring_use_their_own_pool_caps(setup, tmp_path, m
     assert caps == [3, 3, 7]
 
 
+def final_run(setup, tmp_path, **changes):
+    """Run the final fit with `changes` applied to the settings; return the run folder."""
+    settings, record, _ = setup
+    return experiment.run_fold({**settings, **changes}, record, "final", tmp_path / "final")
+
+
+def test_the_final_fit_trains_on_every_tcga_patient_and_scores_cptac_only(setup, tmp_path):
+    """The training pool is all three TCGA patients and the only predictions are CPTAC's."""
+    run = final_run(setup, tmp_path)
+    rows = read(run / "predictions.csv")
+    assert [(r["patient_id"], r["fold"], r["label"]) for r in rows] == [("C1", "final", "1")]
+    record = json.loads((run / "run_record.json").read_text(encoding="utf-8"))
+    assert record["patients"] == {"train": 3, "validation": 0, "external": 1}
+
+
+def test_the_final_fit_runs_every_configured_epoch_with_no_validation(setup, tmp_path,
+                                                                      monkeypatch):
+    """Patience 1 would stop a validated run early, and validation is never computed here."""
+    def refuse(*args):
+        raise AssertionError("the final fit has nothing to validate on")
+
+    monkeypatch.setattr(experiment.train, "validation_loss", refuse)
+    run = final_run(setup, tmp_path, early_stopping_patience=1,
+                    stages_real=[{"learning_rate": 1.0e-3, "epochs": 3, "class_weighted": True}])
+    rows = read(run / "metrics.csv")
+    assert [row["epoch"] for row in rows] == ["1", "2", "3"]
+    assert all(row["validation_loss"] == "" and row["validation_seconds"] == "" for row in rows)
+    record = json.loads((run / "run_record.json").read_text(encoding="utf-8"))
+    assert record["epochs"] == [3] and "best_epochs" not in record and record["valid_for_results"]
+
+
+def test_the_final_checkpoint_holds_the_last_epochs_weights(setup, tmp_path, monkeypatch):
+    """With no validation loss to pick a best epoch, the weights kept are those after the last."""
+    scripted_epochs(monkeypatch, [])
+    run = final_run(setup, tmp_path)
+    weights = torch.load(run / "model.pt")
+    assert weights and all(bool((value == 2.0).all()) for value in weights.values())
+
+
+def test_the_final_fit_scores_cptac_with_the_evaluation_cap(setup, tmp_path, monkeypatch):
+    """Scoring uses max_eval_tiles_per_patient, not the tuning-time validation cap."""
+    seen = []
+    original = experiment.evaluate.predict
+
+    def spy(model, tiles, patients, settings, *args, **kwargs):
+        seen.append((list(patients), settings["max_eval_tiles_per_patient"]))
+        return original(model, tiles, patients, settings, *args, **kwargs)
+
+    monkeypatch.setattr(experiment.evaluate, "predict", spy)
+    final_run(setup, tmp_path, validation_tiles_per_patient=3, max_eval_tiles_per_patient=7)
+    assert seen == [(["C1"], 7)]
+
+
+def test_the_final_fit_refuses_the_smoke_option(setup, tmp_path):
+    """There are no validation patients to train on for a smoke run, so it would train on none."""
+    with pytest.raises(RuntimeError, match="no validation patients"):
+        final_run(setup, tmp_path, smoke_train_on_validation=True)
+    assert not (tmp_path / "final").exists()
+
+
+def test_the_final_fit_needs_a_configured_stain_reference(tmp_path):
+    """No entry for "final" must stop the run, not fall back to a reference nobody chose."""
+    settings, _ = config.load_config(backbone="swin_v2_t",
+                                     overrides=["macenko_reference_patch_ids={'0': 'p'}"])
+    with pytest.raises(RuntimeError, match="needs an entry for fold final"):
+        experiment.build_normalizer(settings, "final", None, None, tmp_path)
+
+
+def test_the_final_fit_builds_its_normalizer_without_a_validation_fold(tmp_path, monkeypatch):
+    """The per-fold fit rejects "final" as a fold, so the final fit must use its own."""
+    settings, _ = config.load_config(backbone="swin_v2_t",
+                                     overrides=["macenko_reference_patch_ids={'final': 'ref'}"])
+
+    def refuse(*args):
+        raise AssertionError("the final fit has no validation fold")
+
+    monkeypatch.setattr(experiment.loader, "fit_fold_normalizer", refuse)
+    monkeypatch.setattr(experiment, "fit_final_normalizer",
+                        lambda folder, reference, reader: ("normalizer", {"reference": reference}))
+    normalizer, record = experiment.build_normalizer(settings, "final", None, None, tmp_path)
+    assert normalizer == "normalizer" and record["reference"] == "ref"
+    assert record["failure_log"] == str(tmp_path / "normalization_failures.csv")
+
+
+def test_the_final_stain_reference_is_a_tcga_tile_fitted_from_its_own_pixels(setup, monkeypatch):
+    """The reference tile's pixels reach the normalizer, and a CPTAC or unknown tile is refused."""
+    settings, _, tiles = setup
+    package = Path(settings["package_dir"])
+    reader = experiment.data.TilePipeline(package, settings).reader
+    fitted = []
+
+    class Fake:  # pylint: disable=too-few-public-methods
+        """Stands in for the Macenko normalizer and keeps the pixels it was fitted on."""
+        stain_matrix_target = torch.zeros(2).numpy()
+        maxC_target = torch.ones(2).numpy()
+
+        def fit(self, rgb):
+            """Remember the reference tile."""
+            fitted.append(rgb.copy())
+
+    monkeypatch.setattr("tiatoolbox.tools.stainnorm.MacenkoNormalizer", Fake)
+    monkeypatch.setattr(experiment.loader, "load_modeling", lambda *args, **kwargs: tiles)
+    reference = tiles[tiles["patient_id"] == "T1"].iloc[0]
+    normalizer, record = experiment.fit_final_normalizer(package, reference["patch_id"], reader)
+    assert isinstance(normalizer, Fake) and (fitted[0] == reader.read(reference)).all()
+    assert record["fold"] == "final" and record["reference_patient"] == "T1"
+    cptac = tiles[tiles["patient_id"] == "C1"].iloc[0]["patch_id"]
+    for bad in (cptac, "no_such_tile"):
+        with pytest.raises(ValueError, match="not a TCGA tile"):
+            experiment.fit_final_normalizer(package, bad, reader)
+
+
 def ticking_clock(monkeypatch, step=2.0, origin=0.0):
     """Make experiment's clock start at `origin` and advance `step` seconds on every reading."""
     ticks = iter(range(10 ** 6))
