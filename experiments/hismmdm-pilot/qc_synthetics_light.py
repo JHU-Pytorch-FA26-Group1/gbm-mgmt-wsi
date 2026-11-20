@@ -13,7 +13,9 @@ p.add_argument("--repo", type=Path, required=True)
 p.add_argument("--batch", type=Path, required=True)
 p.add_argument("--shard", type=int, choices=(0, 1), required=True)
 p.add_argument("--out", type=Path, required=True)
+p.add_argument("--blur-reject-below", type=float, choices=(50, 100), default=100)
 a = p.parse_args()
+protocol = "synthetic-light-v2" if a.blur_reject_below == 50 else "synthetic-light-v1"
 repo, batch = a.repo.resolve(), a.batch.resolve()
 sys.path.insert(0, str(repo / "data_prep"))
 
@@ -55,8 +57,9 @@ require(cfg["version"] == "tiling-v7" and cfg["tile_px"] == 224,
 # In-memory derivative only. The repository policy file is never modified.
 effective = {
     **policy, "grandqc": False, "frozen": False,
-    "version": "synthetic-light-v1",
-    "notes": "Pixel-only derivative of TCGA qc-v5; no new GrandQC inference or slide/edge rules."
+    "version": protocol,
+    "blur_reject_below": a.blur_reject_below,
+    "notes": f"Pixel-only derivative of TCGA qc-v5; synthetic blur reject below {a.blur_reject_below:g}; other pixel cutoffs unchanged; no new GrandQC inference or slide/edge rules."
 }
 
 results = []
@@ -128,13 +131,14 @@ code = [
 code.append(Path(__file__).resolve())
 
 receipt = dict(
-    protocol="synthetic-light-v1", complete=True, shard=a.shard,
+    protocol=protocol, complete=True, shard=a.shard,
     command=sys.argv,
     created_at=datetime.now(timezone.utc).isoformat(),
     batch=str(batch), images=len(results),
     counts=counts, counts_by_source_mgmt_class=by_class,
     parent_policy_sha256=policy_sha, tiling_sha256=cfg_sha,
     effective_policy=effective,
+    blur_override=dict(parent_cutoff=policy["blur_reject_below"], effective_cutoff=a.blur_reject_below),
     manifest_sha256=done["manifest_sha256"],
     completed_sha256=common.sha256_file(folder / "completed.json"),
     batch_run_sha256=common.sha256_file(folder / "batch_run.json"),
