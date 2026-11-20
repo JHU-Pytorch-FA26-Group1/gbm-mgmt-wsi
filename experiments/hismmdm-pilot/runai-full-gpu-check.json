@@ -1,0 +1,27 @@
+{
+  "job_name": "hismmdm-gpu-check-20261120-231306",
+  "workload_id": "5bde447c-7749-4530-9d55-0fecbe3ebba4",
+  "cluster": "runai-cluster1",
+  "project": "runai-users",
+  "node": "wse-rai-gpu1",
+  "image": "nvcr.io/nvidia/pytorch:25.06-py3",
+  "pvc": "persistant-datasource-runai-cluster1-f06e9",
+  "mount": "/workspace/persist",
+  "gpu_devices_requested": 1,
+  "gpu_portion_requested": 1,
+  "gpu_portion_limit": 1,
+  "preemptible": true,
+  "pod_phase": "Succeeded",
+  "completed_at_utc": "2026-11-20T23:13:19Z",
+  "reported_runtime": {
+    "python": "3.10.22",
+    "torch": "2.8.0+cu128",
+    "cuda": "12.8",
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "visible_gpu_memory_GiB": 94.97,
+    "cuda_test": 2.0,
+    "required_paths_accessible": true
+  },
+  "evidence": "User-supplied CLI runtime and workload-description output; raw copies saved in the job's persistent record directory.",
+  "scope": "CUDA tensor operation and required path existence; no diffusion inference or throughput benchmark was performed in this check."
+}
