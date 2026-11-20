@@ -565,6 +565,8 @@ Settings are in `configs/train.yaml`; `configs/backbones/<backbone>.yaml` overri
 
 `python -m training.run references` prints a provisional Macenko reference tile for each fold (a seeded random draw, not screened by eye) as lines to paste into `macenko_reference_patch_ids` in `configs/train.yaml`.
 
+`training.report.out_of_fold` pools the five fold runs into one table of every TCGA patient scored by the fold that held them out, and `out_of_fold_summary` reports the pooled and per-fold AUROC (and the thresholded metrics, given a threshold).
+
 Each backbone is one file in `training/backbones/` with `build(settings, pretrained=True)` returning the module and its embedding length for a batch of 224 x 224 tiles. Not built yet: the final refit and CPTAC scoring, the synthetic-data condition, ConvNeXt V2, W&B logging, loading a checkpoint to resume training, and the threshold rule and bootstrap intervals for the metrics.
 
 ## Tests
