@@ -7,6 +7,7 @@ patient for the configured number of epochs, with no validation and no early sto
 import csv
 import json
 import os
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,7 +18,7 @@ from torch.utils.data import DataLoader
 
 import loader
 from common import read_folds, sha256_file
-from training import config, data, evaluate, labels as label_tools, models, train
+from training import config, data, evaluate, labels as label_tools, models, tracking, train
 
 METRIC_FIELDS = ("stage", "epoch", "train_loss", "validation_loss", "train_seconds",
                  "validation_seconds", "peak_memory_mb")
@@ -83,6 +84,12 @@ def append_row(path, fields, row):
         writer.writerow(row)
 
 
+def record_epoch(context, row):
+    """Append one epoch's row to metrics.csv and send it to W&B when it is on."""
+    append_row(context["run_dir"] / "metrics.csv", METRIC_FIELDS, row)
+    tracking.log(context["wandb"], dict(zip(METRIC_FIELDS, row)))
+
+
 def reset_peak_memory(device):
     """Start a new peak-memory window; only CUDA keeps a peak counter."""
     if str(device).startswith("cuda"):
@@ -131,17 +138,16 @@ def run_stage(model, stage, index, context):
                                 context["pipeline"], device=context["device"],
                                 num_workers=settings["num_workers"])
         loss = train.validation_loss(rows, labels, loss_fn)
-        append_row(context["run_dir"] / "metrics.csv", METRIC_FIELDS,
-                   (index + 1, pending["epoch"], pending["train_loss"], loss,
-                    round(pending["train_seconds"], 1), round(time.perf_counter() - started, 1),
-                    peak_memory_mb(context["device"])))
+        record_epoch(context, (index + 1, pending["epoch"], pending["train_loss"], loss,
+                               round(pending["train_seconds"], 1),
+                               round(time.perf_counter() - started, 1),
+                               peak_memory_mb(context["device"])))
         return loss
 
     if context["final"]:
-        train.fit_fixed(stage["epochs"], run_epoch, lambda epoch, loss: append_row(
-            context["run_dir"] / "metrics.csv", METRIC_FIELDS,
-            (index + 1, epoch, loss, "", round(pending["train_seconds"], 1), "",
-             peak_memory_mb(context["device"]))))
+        train.fit_fixed(stage["epochs"], run_epoch, lambda epoch, loss: record_epoch(
+            context, (index + 1, epoch, loss, "", round(pending["train_seconds"], 1), "",
+                      peak_memory_mb(context["device"]))))
         save_checkpoint(model, context["run_dir"])
         return stage["epochs"]
 
@@ -204,16 +210,20 @@ def run_fold(settings, record, fold, run_dir, device="cpu"):  # pylint: disable=
                "run_dir": run_dir, "device": device, "final": fold == "final",
                "capped": {**settings,
                           "max_eval_tiles_per_patient": settings["validation_tiles_per_patient"]}}
-    best = [run_stage(model, stage, index, context)
-            for index, stage in enumerate(settings["stages_real"])]
-    checkpoint = {"file": CHECKPOINT_FILE, "sha256": sha256_file(run_dir / CHECKPOINT_FILE)}
-    write_predictions(model, fold, context)
-    write_record(run_dir, settings, {"fold": fold, "config": record,
-                                     "epochs" if fold == "final" else "best_epochs": best,
-                                     "checkpoint": checkpoint,
-                                     "patients": {role: len(p) for role, p in groups.items()},
-                                     "normalizer": normalizer_record,
-                                     "seconds": round(time.perf_counter() - started, 1)})
+    context["wandb"] = tracking.start(settings, run_dir.name, fold)
+    try:
+        best = [run_stage(model, stage, index, context)
+                for index, stage in enumerate(settings["stages_real"])]
+        checkpoint = {"file": CHECKPOINT_FILE, "sha256": sha256_file(run_dir / CHECKPOINT_FILE)}
+        write_predictions(model, fold, context)
+        write_record(run_dir, settings, {"fold": fold, "config": record,
+                                         "epochs" if fold == "final" else "best_epochs": best,
+                                         "checkpoint": checkpoint,
+                                         "patients": {role: len(p) for role, p in groups.items()},
+                                         "normalizer": normalizer_record,
+                                         "seconds": round(time.perf_counter() - started, 1)})
+    finally:
+        tracking.finish(context["wandb"], failed=sys.exc_info()[0] is not None)
     return run_dir
 
 

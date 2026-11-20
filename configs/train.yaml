@@ -54,4 +54,4 @@ stages_synthetic:                          # stage 1 on synthetic bags, stage 2 
 
 # --- outputs ---
 output_dir: data/runs                      # inside the ignored data/ folder
-wandb_project: null                        # proposal 3.7; validated, not read until W&B logging is built
+wandb_project: null                        # proposal 3.7; null = off; a name logs runs to W&B when WANDB_API_KEY is set

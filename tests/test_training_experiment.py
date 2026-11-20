@@ -10,6 +10,7 @@ import torch
 from torch import nn
 
 from tests.test_training_data import SIDE, make_package
+from tests.test_training_tracking import fake_wandb
 from training import config, experiment, models
 
 LABELS = {"T1": "Methylated", "T2": "Unmethylated", "T3": "Unmethylated", "C1": "Methylated"}
@@ -364,6 +365,49 @@ def test_the_final_stain_reference_is_a_tcga_tile_fitted_from_its_own_pixels(set
     for bad in (cptac, "no_such_tile"):
         with pytest.raises(ValueError, match="not a TCGA tile"):
             experiment.fit_final_normalizer(package, bad, reader)
+
+
+@pytest.fixture(name="wandb_runs")
+def fixture_wandb_runs(monkeypatch):
+    """The W&B runs started during a test, with a key configured."""
+    monkeypatch.setenv("WANDB_API_KEY", "key")
+    return fake_wandb(monkeypatch)
+
+
+def test_every_epoch_row_reaches_wandb_and_the_csv_is_unchanged(setup, tmp_path, wandb_runs):
+    """W&B gets what metrics.csv gets, and the run is closed as finished."""
+    run = run_with(setup, tmp_path, wandb_project="gbm")
+    rows = read(run / "metrics.csv")
+    logged = wandb_runs[0].logged
+    assert len(logged) == len(rows) == 2
+    assert [row["epoch"] for row in logged] == [1, 2]
+    assert [row["validation_loss"] for row in logged] == [float(r["validation_loss"]) for r in rows]
+    assert wandb_runs[0].exit_code == 0 and wandb_runs[0].kwargs["name"] == "run"
+
+
+def test_a_crash_closes_the_wandb_run_as_failed_and_still_raises(setup, tmp_path, monkeypatch,
+                                                               wandb_runs):
+    """Training that dies must not leave a W&B run open as if it were still going."""
+    def crash(*args, **kwargs):
+        raise RuntimeError("out of memory")
+
+    monkeypatch.setattr(experiment.train, "train_epoch", crash)
+    with pytest.raises(RuntimeError, match="out of memory"):
+        run_with(setup, tmp_path, wandb_project="gbm")
+    assert wandb_runs[0].exit_code == 1
+
+
+def test_the_final_fit_logs_no_validation_values_to_wandb(setup, tmp_path, wandb_runs):
+    """The blank validation columns of a final-fit row are dropped, not sent as empty metrics."""
+    final_run(setup, tmp_path, wandb_project="gbm")
+    assert all("validation_loss" not in row and "train_loss" in row
+               for row in wandb_runs[0].logged)
+
+
+def test_without_a_project_nothing_starts(setup, tmp_path, wandb_runs):
+    """The default config writes the CSV files only."""
+    run_with(setup, tmp_path)
+    assert not wandb_runs and (tmp_path / "run" / "metrics.csv").exists()
 
 
 def ticking_clock(monkeypatch, step=2.0, origin=0.0):

@@ -17,6 +17,9 @@ patches/
 #   git add -f logs/<file>.log
 logs/
 
+# Weights & Biases run files written next to the code
+wandb/
+
 # Python
 __pycache__/
 *.py[cod]
