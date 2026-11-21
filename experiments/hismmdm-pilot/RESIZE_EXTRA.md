@@ -37,7 +37,7 @@ bash scripts/run_hismmdm_resize_extra.sh submit
 runai training standard list --project runai-users
 ```
 
-- The job requests one device with requested and maximum portion 0.5, four CPU cores and 16 GB CPU RAM. Confirm `0.50` allocated in the listing before interpreting it as running. It may queue; half a GPU does not guarantee twice the speed of the prior quarter-GPU job.
+- The job requests one device with GPU portion 0.5, four CPU cores and 16 GB CPU RAM. The optional --gpu-portion-limit is omitted because this cluster requires GPU Optimization for fractional limit settings. The prepared sources are retained; retry only submit. Confirm `0.50` allocated in the listing before interpreting it as running. It may queue; half a GPU does not guarantee twice the speed of the prior quarter-GPU job.
 - It uses the confirmed image `nvcr.io/nvidia/pytorch:25.06-py3`, project `runai-users`, cluster `runai-cluster1` (selected explicitly before submission), and existing PVC `persistant-datasource-runai-cluster1-f06e9` at `/workspace/persist`.
 - Submission records the CLI/Git versions and exact source snapshots and checksums under the new batch's `runai/<job>/` directory. It verifies the preparer, legacy batch and core still match the preparation receipt before submitting.
 - The new job runs both shards sequentially in the foreground, verifies outputs, then exits. It is preemptible under the normal training policy. Completed source receipts enable resumption with matching code, inputs and runtime/GPU type. No extra parallel processes are started in the existing 0.25-GPU notebook workload.

@@ -58,7 +58,7 @@ PY
     runai training standard submit "$JOB" --project runai-users \
       --image nvcr.io/nvidia/pytorch:25.06-py3 \
       --gpu-devices-request 1 --gpu-request-type portion \
-      --gpu-portion-request 0.5 --gpu-portion-limit 0.5 \
+      --gpu-portion-request 0.5 \
       --cpu-core-request 4 --cpu-memory-request 16G \
       --existing-pvc 'claimname=persistant-datasource-runai-cluster1-f06e9,path=/workspace/persist' \
       --environment-variable "HIS_RESIZE_EXTRA_BATCH=$BATCH" \
