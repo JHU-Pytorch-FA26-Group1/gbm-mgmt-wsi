@@ -1,0 +1,44 @@
+{
+  "sources": [
+    "A_qc-v5",
+    "B_qc-v5"
+  ],
+  "seed": 42,
+  "per_patient": 25,
+  "patients": 521,
+  "tiles_used": null,
+  "tiles_failed": 0,
+  "tissue_pixels": null,
+  "stain_std_across_tiles": [
+    [
+      null,
+      null,
+      null
+    ],
+    [
+      null,
+      null,
+      null
+    ]
+  ],
+  "modeling_sha256": null,
+  "ref_HE": [
+    [
+      null,
+      null
+    ],
+    [
+      null,
+      null
+    ],
+    [
+      null,
+      null
+    ]
+  ],
+  "ref_max_C": [
+    null,
+    null
+  ],
+  "npz_sha256": null
+}
