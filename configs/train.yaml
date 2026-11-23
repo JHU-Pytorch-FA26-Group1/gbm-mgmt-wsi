@@ -21,8 +21,9 @@ crop_scale: null                           # start (Experiment C, team chat Nov 
 color_jitter: null                         # start (Experiment C, team chat Nov 18); null = off; else brightness, contrast and
                                            # saturation each scaled by a factor in 1 +- this (0-1), after Macenko
 smoke_train_on_validation: false           # true = pipeline smoke run; its run record is marked invalid for results
-macenko_reference_file: null               # team (Nov 22): one static reference for all data, an .npz from
-                                           # `python -m training.run cohort-reference`; null = a tile per fold, below
+macenko_reference_file: configs/macenko/cohort_tcga_start.npz   # team (Nov 22): one static reference for all data;
+                                           # start: TCGA A+B, 100 tiles per patient (`training.run cohort-reference`),
+                                           # Couger's rebuild replaces it; null = a tile per fold, below
 macenko_reference_patch_ids:               # per fold ("0".."4", "final"); a smoke run with no entry picks one itself
   "0": TCGA_17912b19589d4ddb_29568_26880   # start: seeded random draw (python -m training.run references), not screened;
   "1": TCGA_4f512c9ffcce4e9e_32928_14336   # repeat results once the team decides how the reference is chosen
