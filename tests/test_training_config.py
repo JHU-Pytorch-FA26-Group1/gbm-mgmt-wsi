@@ -67,6 +67,13 @@ def test_crop_scale_and_color_jitter_accept_a_fraction_or_off():
     assert settings["crop_scale"] is None and settings["color_jitter"] is None
 
 
+def test_macenko_reference_file_is_a_path_or_off():
+    """null selects the per-fold tile; a path selects the shared reference file."""
+    assert load(overrides=["macenko_reference_file=null"])[0]["macenko_reference_file"] is None
+    assert load(overrides=["macenko_reference_file=configs/ref.npz"])[0][
+        "macenko_reference_file"] == "configs/ref.npz"
+
+
 def test_overrides_are_read_as_yaml():
     """Command-line overrides read their value as YAML and are recorded."""
     settings, record = load(overrides=["max_tiles_per_patient=1000", "jpeg_quality=90",
@@ -91,7 +98,8 @@ def test_same_settings_same_hash_and_a_change_changes_it():
     "attention_dropout=1", "patients_per_update=0", "seed=-1",
     "crop_scale=0", "crop_scale=1.5", "color_jitter=0", "color_jitter=-0.2",
     "mixed_precision=maybe", "macenko_reference_patch_ids={'7': 'x'}",
-    "label_unmethylated_value=Methylated", "num_workers=-1",
+    "label_unmethylated_value=Methylated", "num_workers=-1", "macenko_reference_file=5",
+    "macenko_reference_file=''",
 ])
 def test_bad_values_are_refused(override):
     """Each out-of-range or wrong-type value stops the run."""

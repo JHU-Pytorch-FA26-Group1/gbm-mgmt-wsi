@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import torch
 import torchvision
 from torch.utils.data import DataLoader
@@ -52,11 +53,36 @@ def fit_final_normalizer(folder, reference_patch_id, reader):
                         "fitted_at_utc": datetime.now(timezone.utc).isoformat()}
 
 
+def normalizer_from_reference(path):
+    """(Macenko normalizer, record) for a saved cohort reference (ref_HE 3 x 2, ref_max_C 2)."""
+    # pylint: disable=import-outside-toplevel
+    from tiatoolbox.tools.stainnorm import MacenkoNormalizer
+    arrays = np.load(path, allow_pickle=False)
+    he, max_c = arrays["ref_HE"], arrays["ref_max_C"]
+    if (he.shape != (3, 2) or max_c.shape != (2,) or not np.isfinite(he).all()
+            or not np.isfinite(max_c).all() or (max_c <= 0).any()):
+        raise ValueError(f"{path} is not a stain reference: ref_HE {he.shape}, "
+                         f"ref_max_C {max_c.shape}")
+    normalizer = MacenkoNormalizer()
+    normalizer.stain_matrix_target = he.T.astype(np.float64)   # one stain per row
+    normalizer.maxC_target = max_c.reshape(1, 2).astype(np.float64)
+    return normalizer, {"reference_file": Path(path).name, "reference_sha256": sha256_file(path),
+                        "stain_matrix_target": normalizer.stain_matrix_target.tolist(),
+                        "maxC_target": normalizer.maxC_target.tolist(),
+                        "fitted_at_utc": datetime.now(timezone.utc).isoformat()}
+
+
 def build_normalizer(settings, fold, tiles, reader, run_dir):
     """(Macenko normalizer, its record) for `fold`, fitted on the configured reference tile.
 
     A smoke run with no configured reference takes the first TCGA training tile and records it.
     """
+    if settings["macenko_reference_file"] is not None:
+        normalizer, record = normalizer_from_reference(
+            config.repo_path(settings["macenko_reference_file"]))
+        record = {"fold": fold, **record,
+                  "failure_log": str(Path(run_dir) / "normalization_failures.csv")}
+        return normalizer, record
     reference = settings["macenko_reference_patch_ids"].get(str(fold))
     if reference is None:
         if not settings["smoke_train_on_validation"]:

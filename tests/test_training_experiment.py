@@ -9,7 +9,9 @@ import pytest
 import torch
 from torch import nn
 
+import numpy as np
 from tests.test_training_data import SIDE, make_package
+from tests.test_training_references import E_TRUE, H_TRUE, stained_tile
 from tests.test_training_tracking import fake_wandb
 from training import config, experiment, models
 
@@ -30,6 +32,7 @@ def fixture_setup(tmp_path, monkeypatch):
     overrides = [f"package_dir={package}", f"labels_csv={tmp_path / 'labels.csv'}",
                  f"folds_csv={tmp_path / 'folds.csv'}", "tiles_per_bag=4",
                  "smoke_train_on_validation=false", "macenko_reference_patch_ids={}",
+                 "macenko_reference_file=null",
                  "stages_real=[{learning_rate: 1.0e-3, epochs: 2, class_weighted: true}]"]
     settings, record = config.load_config(backbone="swin_v2_t", overrides=overrides)
 
@@ -318,7 +321,8 @@ def test_the_final_fit_refuses_the_smoke_option(setup, tmp_path):
 def test_the_final_fit_needs_a_configured_stain_reference(tmp_path):
     """No entry for "final" must stop the run, not fall back to a reference nobody chose."""
     settings, _ = config.load_config(backbone="swin_v2_t",
-                                     overrides=["macenko_reference_patch_ids={'0': 'p'}"])
+                                     overrides=["macenko_reference_patch_ids={'0': 'p'}",
+                                                "macenko_reference_file=null"])
     with pytest.raises(RuntimeError, match="needs an entry for fold final"):
         experiment.build_normalizer(settings, "final", None, None, tmp_path)
 
@@ -326,7 +330,8 @@ def test_the_final_fit_needs_a_configured_stain_reference(tmp_path):
 def test_the_final_fit_builds_its_normalizer_without_a_validation_fold(tmp_path, monkeypatch):
     """The per-fold fit rejects "final" as a fold, so the final fit must use its own."""
     settings, _ = config.load_config(backbone="swin_v2_t",
-                                     overrides=["macenko_reference_patch_ids={'final': 'ref'}"])
+                                     overrides=["macenko_reference_patch_ids={'final': 'ref'}",
+                                                "macenko_reference_file=null"])
 
     def refuse(*args):
         raise AssertionError("the final fit has no validation fold")
@@ -337,6 +342,72 @@ def test_the_final_fit_builds_its_normalizer_without_a_validation_fold(tmp_path,
     normalizer, record = experiment.build_normalizer(settings, "final", None, None, tmp_path)
     assert normalizer == "normalizer" and record["reference"] == "ref"
     assert record["failure_log"] == str(tmp_path / "normalization_failures.csv")
+
+
+def save_reference(path, he=None, max_c=(2.0, 1.2)):
+    """Write a stain reference file: H and E as columns (the unit vectors of the helper tiles)."""
+    he = np.stack([H_TRUE, E_TRUE], axis=1) if he is None else he
+    np.savez(path, ref_HE=np.asarray(he, np.float32), ref_max_C=np.asarray(max_c, np.float32))
+    return path
+
+
+def test_a_tile_normalized_to_a_reference_file_takes_the_references_stains(tmp_path):
+    """The file's columns are stains, so the normalizer must use them as rows. Re-estimating a
+    normalized tile's stains must give the reference's, with the reference's scale for each."""
+    from tiatoolbox.tools.stainextract import MacenkoExtractor  # pylint: disable=import-outside-toplevel
+    normalizer, _ = experiment.normalizer_from_reference(save_reference(tmp_path / "ref.npz"))
+    other_h = np.array([0.80, 0.50, 0.33]) / np.linalg.norm([0.80, 0.50, 0.33])
+    other_e = np.array([0.25, 0.65, 0.72]) / np.linalg.norm([0.25, 0.65, 0.72])
+    source = stained_tile(1, other_h, other_e)
+    rows = MacenkoExtractor().get_stain_matrix(normalizer.transform(source.copy()))
+    assert abs(rows[0] @ H_TRUE) > 0.97 and abs(rows[1] @ E_TRUE) > 0.97
+    scales = np.percentile(
+        normalizer.get_concentrations(normalizer.transform(source.copy()),
+                                      normalizer.stain_matrix_target), 99, axis=0)
+    assert scales[0] == pytest.approx(2.0, rel=0.2) and scales[1] == pytest.approx(1.2, rel=0.2)
+    unchanged = MacenkoExtractor().get_stain_matrix(source)
+    assert abs(unchanged[0] @ H_TRUE) < 0.97
+
+
+@pytest.mark.parametrize("he, max_c", [
+    (np.ones((2, 3)), (1.0, 1.0)), (np.ones((3, 2)), (1.0, 1.0, 1.0)),
+    (np.full((3, 2), np.nan), (1.0, 1.0)), (np.ones((3, 2)), (1.0, 0.0)),
+    (np.ones((3, 2)), (1.0, -2.0))])
+def test_a_file_that_is_not_a_stain_reference_is_refused(tmp_path, he, max_c):
+    """Wrong shapes, non-finite values and non-positive scales would corrupt every tile silently."""
+    path = tmp_path / "ref.npz"
+    np.savez(path, ref_HE=np.asarray(he, np.float32), ref_max_C=np.asarray(max_c, np.float32))
+    with pytest.raises(ValueError, match="not a stain reference"):
+        experiment.normalizer_from_reference(path)
+
+
+def test_the_reference_record_names_the_file_and_its_hash(tmp_path):
+    """A run's record must say which reference file it used, and a changed file must show."""
+    first = experiment.normalizer_from_reference(save_reference(tmp_path / "ref.npz"))[1]
+    second = experiment.normalizer_from_reference(
+        save_reference(tmp_path / "ref.npz", max_c=(2.0, 1.0)))[1]
+    assert first["reference_file"] == "ref.npz"
+    assert first["reference_sha256"] != second["reference_sha256"]
+
+
+def test_a_reference_file_replaces_the_per_fold_tile_for_every_fold_including_final(
+        tmp_path, monkeypatch):
+    """With the file set, no fold needs its own tile, and the final fit needs none either."""
+    path = save_reference(tmp_path / "ref.npz")
+    settings, _ = config.load_config(
+        backbone="swin_v2_t", overrides=[f"macenko_reference_file={path}",
+                                         "macenko_reference_patch_ids={}"])
+
+    def refuse(*args):
+        raise AssertionError("a per-fold tile was fitted")
+
+    monkeypatch.setattr(experiment.loader, "fit_fold_normalizer", refuse)
+    monkeypatch.setattr(experiment, "fit_final_normalizer", refuse)
+    for fold in (0, 3, "final"):
+        normalizer, record = experiment.build_normalizer(settings, fold, None, None, tmp_path)
+        assert normalizer.maxC_target.ravel().tolist() == pytest.approx([2.0, 1.2])
+        assert record["fold"] == fold and record["reference_file"] == "ref.npz"
+        assert record["failure_log"] == str(tmp_path / "normalization_failures.csv")
 
 
 def test_the_final_stain_reference_is_a_tcga_tile_fitted_from_its_own_pixels(setup, monkeypatch):

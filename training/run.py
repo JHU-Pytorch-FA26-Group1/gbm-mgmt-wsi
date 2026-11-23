@@ -2,6 +2,7 @@
 
     python -m training.run verify --package data/packages/B_qc-v5
     python -m training.run references
+    python -m training.run cohort-reference --package FOLDER --out FILE.npz
     python -m training.run train --backbone swin_v2_t --fold 0 [--set key=value ...]
     python -m training.run train --backbone swin_v2_t --fold final [--set key=value ...]
 
@@ -10,6 +11,7 @@ Exit codes: 0 done, 1 problems found, 2 setup or usage problem.
 import argparse
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 import loader
 from training.config import DEFAULT_TRAIN_CONFIG
@@ -72,6 +74,26 @@ def references(args):
     return 0
 
 
+def cohort_reference(args):
+    """Build a cohort stain reference from a package and save it; return the exit code."""
+    # pylint: disable=import-outside-toplevel
+    from training import references as builder
+    try:
+        package = Path(args.package).expanduser()
+        tiles = loader.load_modeling(package)
+        with loader.TileReader(package) as reader:
+            he, max_c, facts = builder.build_cohort_reference(
+                tiles, reader, args.seed, args.per_patient, tuple(args.sources))
+        builder.save_cohort_reference(Path(args.out).expanduser(), he, max_c,
+                                      {**facts, "modeling_sha256": loader.sha256_file(
+                                          package / "modeling_patches.csv")})
+    except (RuntimeError, ValueError, OSError) as error:
+        print(f"cannot build the reference: {error}", file=sys.stderr)
+        return 2
+    print(f"{facts['tiles_used']} tiles from {facts['patients']} patients -> {args.out}")
+    return 0
+
+
 def main(argv=None):
     """Run the chosen command and return its exit code."""
     parser = argparse.ArgumentParser(prog="python -m training.run",
@@ -89,12 +111,21 @@ def main(argv=None):
                               metavar="KEY=VALUE", help="override a config key (YAML value)")
     train_parser.add_argument("--device", default="cpu")
     train_parser.add_argument("--name", help="run folder name (default: backbone, fold, UTC time)")
+    cohort_parser = commands.add_parser("cohort-reference",
+                                        help="build one stain reference from a package")
+    cohort_parser.add_argument("--package", required=True, help="package or combined folder")
+    cohort_parser.add_argument("--out", required=True, help="the .npz to write (.json beside it)")
+    cohort_parser.add_argument("--sources", nargs="+", default=["TCGA"], choices=["TCGA", "CPTAC"])
+    cohort_parser.add_argument("--per-patient", type=int, default=100)
+    cohort_parser.add_argument("--seed", type=int, default=0)
     references_parser = commands.add_parser("references",
                                             help="draw provisional Macenko references")
     references_parser.add_argument("--config", default=DEFAULT_TRAIN_CONFIG)
     args = parser.parse_args(argv)
     if args.command == "references":
         return references(args)
+    if args.command == "cohort-reference":
+        return cohort_reference(args)
     if args.command == "train":
         return train(args)
     return verify(args.package)
