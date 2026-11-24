@@ -184,3 +184,7 @@ python3 -m alternative_models.shared_half_b --base "$BASE" --repo "$ALT" --copy
 - This downloads an existing QC'd package. It does not rerun GrandQC, change thresholds, prepare synthetic sources, launch generation, or start model training. The existing source-score metadata gap remains to be resolved before Half-B generation.
 - Shared-folder read correction: Carlos's Run:ai diagnostic returned `found file when looking for folder` for the direct file form. Reading the folder root with `--include /package_manifest.json --max-depth 1` succeeded and passed A/B manifest compatibility checks. Inspection and copy now use that verified manifest-read form, bounded to 2 MiB plus one byte for oversize detection.
 - The bulk copy already starts at the shared folder root. `--no-traverse=false` is explicit so the manifest file list filters folder listings rather than triggering individual file lookups. Local regression tests check the folder-based manifest command and the bulk-copy flag. Full cloud package transfer and payload verification remain runtime checks; successful manifest inspection alone does not establish payload integrity.
+
+## Matched Half B diffusion generation
+
+- [HALF_B_GENERATION.md](HALF_B_GENERATION.md) is the runbook for the 2,000-source / 16,000-resize / 16,000-crop Half B extension: matching rules, portable-package evidence, tests, Git records, guarded GPU handoff, resumable jobs, unchanged blur-10 QC and archival transfer. It imports unchanged Half A engines from recorded hashes and keeps existing model-owner files untouched.
