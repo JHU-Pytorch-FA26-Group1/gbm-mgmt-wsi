@@ -2,6 +2,7 @@
 import csv
 import hashlib
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -643,3 +644,18 @@ def test_a_run_that_fails_its_checks_leaves_no_run_folder(setup, tmp_path):
     with pytest.raises(OSError):
         experiment.run_fold(bad, record, 1, tmp_path / "run")
     assert not (tmp_path / "run").exists()
+
+
+def test_trainable_stages_freeze_the_backbone_in_a_run_and_the_record_counts_parameters(
+        setup, tmp_path, monkeypatch):
+    """With no trainable stage the backbone keeps its initial weights; only the pool counts."""
+    monkeypatch.setitem(sys.modules, "fake_stages", SimpleNamespace(
+        stages=lambda backbone: [[backbone[1]], [], [], []]))
+    monkeypatch.setitem(models.BACKBONE_MODULES, "swin_v2_t", "fake_stages")
+    fresh = models.build_model(setup[0], "swin_v2_t")
+    run = run_with(setup, tmp_path, trainable_stages=0)
+    saved = torch.load(run / experiment.CHECKPOINT_FILE, map_location="cpu")
+    assert torch.equal(saved["backbone.1.weight"], fresh.backbone[1].weight)
+    counts = json.loads((run / "run_record.json").read_text(encoding="utf-8"))["parameters"]
+    assert counts["trainable"] == sum(p.numel() for p in fresh.pool.parameters())
+    assert counts["total"] == sum(p.numel() for p in fresh.parameters())

@@ -34,6 +34,7 @@ macenko_reference_patch_ids:               # per fold ("0".."4", "final"); a smo
 # --- model ---
 attention_hidden: 128                      # start
 attention_dropout: 0.0                     # start
+trainable_stages: 4                        # Liv requires full fine-tuning (4); N < 4 trains only the last N backbone stages, 0 = pooling head
 
 # --- optimization ---
 optimizer: adam                            # class (Sep 16 office hours); the only accepted value

@@ -34,7 +34,7 @@ def test_committed_configs_load(backbone):
 @pytest.mark.parametrize("override", [
     "optimizer=sgd", "scheduler_gamma=1.5", "scheduler=step", "early_stopping_patience=0",
     "validation_tiles_per_patient=0", "attention_hidden=0", "smoke_train_on_validation=maybe",
-    "wandb_project=a/b",
+    "wandb_project=a/b", "trainable_stages=5", "trainable_stages=-1", "trainable_stages=1.5",
     "stages_real=[{learning_rate: 1.0e-5, epochs: 0, class_weighted: true}]",
     "stages_real=[{learning_rate: 1.0e-5, epochs: 1, class_weighted: 1}]",
 ])
@@ -51,6 +51,12 @@ def test_the_scheduler_needs_its_step_size_and_gamma_together():
     settings, _ = load(overrides=["scheduler=step", "scheduler_step_size=10",
                                   "scheduler_gamma=0.5"])
     assert settings["scheduler"] == "step"
+
+
+def test_trainable_stages_accepts_both_ends_of_its_range():
+    """0 (pooling head only) and 4 (everything) are both valid."""
+    for stages in (0, 4):
+        assert load(overrides=[f"trainable_stages={stages}"])[0]["trainable_stages"] == stages
 
 
 def test_jpeg_quality_accepts_both_ends_of_its_range():

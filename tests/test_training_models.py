@@ -89,3 +89,64 @@ def test_unknown_backbone_is_refused():
     """A typo must stop the run, not fall back to some default model."""
     with pytest.raises(ValueError):
         models.build_model(SETTINGS, "resnet50")
+
+
+class Stub(nn.Module):
+    """A four-stage backbone: one linear layer and one dropout per stage, as `stages` lists them."""
+
+    def __init__(self):
+        super().__init__()
+        self.layers = nn.ModuleList(nn.Linear(4, 4) for _ in range(4))
+        self.dropouts = nn.ModuleList(nn.Dropout(0.5) for _ in range(4))
+
+    def forward(self, tiles):
+        """Each stage's layer then its dropout."""
+        for layer, dropout in zip(self.layers, self.dropouts):
+            tiles = dropout(layer(tiles))
+        return tiles
+
+
+def stub_stages(model):
+    """The stub's stages, earliest first."""
+    return [[layer, dropout] for layer, dropout in zip(model.layers, model.dropouts)]
+
+
+@pytest.fixture(name="stub_model")
+def fixture_stub_model(monkeypatch):
+    """A BagModel on the stub backbone, registered under the swin name."""
+    monkeypatch.setitem(sys.modules, "fake_stages", SimpleNamespace(stages=stub_stages))
+    monkeypatch.setitem(models.BACKBONE_MODULES, "swin_v2_t", "fake_stages")
+    return models.BagModel(Stub(), 4, SETTINGS)
+
+
+@pytest.mark.parametrize("trainable, frozen",
+                         [(4, []), (3, [0]), (1, [0, 1, 2]), (0, [0, 1, 2, 3])])
+def test_only_the_stages_before_the_last_n_are_frozen(stub_model, trainable, frozen):
+    """n counts from the last stage; the wrong end would train the stem and freeze the top."""
+    models.freeze_backbone(stub_model, "swin_v2_t", trainable)
+    layers = stub_model.backbone.layers
+    flags = [all(p.requires_grad for p in layer.parameters()) for layer in layers]
+    assert flags == [index not in frozen for index in range(4)]
+    assert all(p.requires_grad for p in stub_model.pool.parameters())
+
+
+def test_a_frozen_stage_does_not_move_and_the_stages_after_it_do(stub_model):
+    """Frozen weights stay identical through an optimizer step; the trainable ones change."""
+    models.freeze_backbone(stub_model, "swin_v2_t", 2)
+    before = [layer.weight.clone() for layer in stub_model.backbone.layers]
+    optimizer = torch.optim.Adam([p for p in stub_model.parameters() if p.requires_grad], lr=0.1)
+    logits, _ = stub_model(torch.randn(2, 5, 4))
+    logits.sum().backward()
+    optimizer.step()
+    layers = stub_model.backbone.layers
+    moved = [not torch.equal(b, layer.weight) for b, layer in zip(before, layers)]
+    assert moved == [False, False, True, True]
+
+
+def test_frozen_stages_stay_in_eval_mode_when_the_model_trains(stub_model):
+    """A frozen stage that kept dropping paths would embed a tile differently on every pass."""
+    models.freeze_backbone(stub_model, "swin_v2_t", 2)
+    for mode in (stub_model.train, stub_model.eval, stub_model.train):
+        mode()
+    modes = [dropout.training for dropout in stub_model.backbone.dropouts]
+    assert modes == [False, False, True, True]

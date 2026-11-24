@@ -230,7 +230,9 @@ def run_fold(settings, record, fold, run_dir, device="cpu"):  # pylint: disable=
     batches = DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=workers,
                          persistent_workers=workers > 0,
                          multiprocessing_context=data.worker_context(workers))
-    model = models.build_model(settings, settings["backbone"]).to(device)
+    model = models.build_model(settings, settings["backbone"])
+    models.freeze_backbone(model, settings["backbone"], settings["trainable_stages"])
+    model = model.to(device)
     context = {"settings": settings, "tiles": tiles, "groups": groups, "labels": labels,
                "pipeline": pipeline, "sampler": sampler, "loader": batches,
                "run_dir": run_dir, "device": device, "final": fold == "final",
@@ -247,10 +249,17 @@ def run_fold(settings, record, fold, run_dir, device="cpu"):  # pylint: disable=
                                          "checkpoint": checkpoint,
                                          "patients": {role: len(p) for role, p in groups.items()},
                                          "normalizer": normalizer_record,
+                                         "parameters": parameter_counts(model),
                                          "seconds": round(time.perf_counter() - started, 1)})
     finally:
         tracking.finish(context["wandb"], failed=sys.exc_info()[0] is not None)
     return run_dir
+
+
+def parameter_counts(model):
+    """Trainable and total parameter counts, so a record shows what was frozen."""
+    return {"trainable": sum(p.numel() for p in model.parameters() if p.requires_grad),
+            "total": sum(p.numel() for p in model.parameters())}
 
 
 def write_record(run_dir, settings, facts):

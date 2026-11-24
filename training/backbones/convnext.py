@@ -12,3 +12,12 @@ def build(settings, pretrained=True):
     )
     length = model.num_features
     return model, length
+
+
+def stages(model):
+    """The four stages, earliest first, as lists of modules, covering every parameter once.
+
+    The stem goes with stage 1 (timm keeps each downsampling inside it), the head norm with 4.
+    """
+    return [[model.stem, model.stages[0]], [model.stages[1]], [model.stages[2]],
+            [model.stages[3], model.head]]

@@ -4,6 +4,7 @@ import importlib
 import torch
 from torch import nn
 
+STAGES = 4   # every backbone exposes four stages (backbones/<name>.py `stages`)
 BACKBONE_MODULES = {"swin_v2_t": "training.backbones.swin",
                     "convnext_v2_t": "training.backbones.convnext"}
 
@@ -32,6 +33,15 @@ class BagModel(nn.Module):
         self.backbone = backbone
         self.pool = AttentionPool(length, settings["attention_hidden"],
                                   settings["attention_dropout"])
+        self.frozen = []   # kept in eval mode so a frozen layer does not drop paths while training
+
+    def train(self, mode=True):
+        """Switch modes, keeping frozen modules in eval mode."""
+        super().train(mode)
+        if mode:
+            for module in self.frozen:
+                module.eval()
+        return self
 
     def encode(self, tiles):
         """(n, 3, H, W) -> (n, length)."""
@@ -51,3 +61,14 @@ def build_model(settings, backbone, pretrained=True):
                          f"expected one of {sorted(BACKBONE_MODULES)}")
     module, length = importlib.import_module(BACKBONE_MODULES[backbone]).build(settings, pretrained)
     return BagModel(module, length, settings)
+
+
+def freeze_backbone(model, backbone, trainable_stages):
+    """Freeze all but the last `trainable_stages` of the four stages (the pool always trains)."""
+    if trainable_stages == STAGES:
+        return
+    groups = importlib.import_module(BACKBONE_MODULES[backbone]).stages(model.backbone)
+    for group in groups[:STAGES - trainable_stages]:
+        for module in group:
+            module.requires_grad_(False)
+            model.frozen.append(module)
