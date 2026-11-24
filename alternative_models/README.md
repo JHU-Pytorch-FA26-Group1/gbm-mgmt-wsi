@@ -133,3 +133,27 @@ env LD_PRELOAD="" LD_LIBRARY_PATH="$BASE/patch-env/lib/python3.12/site-packages/
 
 - Tests check exact 5,000-tile coverage at 64/128/256, quota arithmetic, diversity, reproducibility, nested equal-size pools, no overwrite, held-out/label/pixel-lineage protection, changed QC evidence, duplicate variants, cache corruption, frozen encoder behavior, fine-tuning gradients, patient update counts, failure records and best-checkpoint restoration.
 - CPU integration uses a tiny backbone and deterministic fixture pixels. Actual GPU memory, pretrained downloads, real TIAToolbox data transforms, production HDF5 packages and the completed synthetic QC artifacts still need runtime validation. No such checks are claimed by the fixture tests.
+
+## Data readiness: Half B package and dependency review
+
+- `half_b_package.py` uses the standard library. It inspects ZIP layout, package completeness, shared A/B tiling/policy/fold hashes, canonical Half-B patient ownership and fold-0 training-source counts. It does not submit a job or create variants.
+- Inspect first; optional extraction writes only into a new folder. It checks free space, hashes every extracted file in one pass, stages output privately, and publishes it only when all hashes match. It retains the ZIP and Half A package. Existing output is refused.
+- Half A generation status in the report checks completion counts and generation CSV hashes only. GPU release and current scheduler state require the Run:ai CLI. Generation completion does not imply QC completion.
+
+```bash
+cd "$ALT"
+python3 -m alternative_models.half_b_package --base "$BASE" --repo "$ALT"
+python3 -m alternative_models.half_b_package --base "$BASE" --repo "$ALT" \
+  --extract-to "$BASE/packages/B_qc-v5"
+```
+
+- The existing diffusion source preparer also expects original per-tile source-score metadata; a portable package normally omits those tables. The report identifies available sidecars. They are extracted only if listed in the package manifest. No missing tissue fractions are invented. This tool prepares data access; it does not make the Half-B generation launchers ready.
+- TIAToolbox 2.1.3 (the existing preprocessing version) has auxiliary dependency upper bounds. In particular, its supported timm/PyYAML/Hugging Face versions may differ from the isolated benchmark environment. Review the actual resolver plan before installing; do not replace working CUDA builds or silently change the benchmarked environment.
+- `check_training_dependencies.sh` performs `pip install --dry-run` under explicit CUDA constraints and writes a report/log. It makes no package installation or removal. It reports changed existing packages and required data packages. Run it on Run:ai, where the actual installed environment is available; fixture tests do not establish that resolution succeeds.
+
+```bash
+bash alternative_models/check_training_dependencies.sh
+```
+
+- `training-gpu-constraints.txt` retains torch 2.8.0+cu128 and torchvision 0.23.0+cu128. Proposed data dependencies are TIAToolbox 2.1.3, h5py 3.16.0, scikit-learn 1.8.0 and a compatible pandas. After any backbone dependency change, rerun the relevant GPU benchmark and preserve both before/after records.
+- Real-data smoke testing, learning-rate/cycle selection, completed crop/additional-resize QC, Half-B source preparation and later jobs remain distinct steps. Nothing in these preflight commands starts training or schedules new workloads.
