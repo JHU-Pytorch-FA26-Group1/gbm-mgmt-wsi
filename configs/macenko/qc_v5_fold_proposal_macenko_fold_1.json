@@ -1,0 +1,64 @@
+{
+  "name": "qc_v5_fold_proposal_macenko_fold_1",
+  "fold": "1",
+  "sources": [
+    "TCGA"
+  ],
+  "packages": [
+    "A_qc-v5",
+    "B_qc-v5"
+  ],
+  "seed": 42,
+  "patches_per_slide_target": 25,
+  "n_slides": 30,
+  "n_patches_sampled": 750,
+  "avg_patches_per_slide": 25.0,
+  "tss_codes": [
+    "19",
+    "41"
+  ],
+  "Io": 240.0,
+  "beta": 0.15,
+  "alpha": 1.0,
+  "mean_rgb": [
+    201.502296,
+    171.341117,
+    189.969249
+  ],
+  "ref_HE_2x3": [
+    [
+      0.6101932982721148,
+      0.7079006033847465,
+      0.3557258136139556
+    ],
+    [
+      0.1430724308624233,
+      0.8199881647043754,
+      0.5542108527193125
+    ]
+  ],
+  "ref_HE": [
+    [
+      0.6101932982721148,
+      0.1430724308624233
+    ],
+    [
+      0.7079006033847465,
+      0.8199881647043754
+    ],
+    [
+      0.3557258136139556,
+      0.5542108527193125
+    ]
+  ],
+  "ref_max_C": [
+    2.7766189839965505,
+    1.9875196832914697
+  ],
+  "maxC_ref": [
+    2.7766189839965505,
+    1.9875196832914697
+  ],
+  "npz_path": "/Users/couger/gbm-mgmt-wsi/manifests/qc_v5_fold_proposal_macenko/qc_v5_fold_proposal_macenko_fold_1.npz",
+  "npz_sha256": "a09488161ebf1efb277206ae87f8ce337c3f95881db6f04b0d1265748021b5d8"
+}
