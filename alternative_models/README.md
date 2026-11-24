@@ -157,3 +157,30 @@ bash alternative_models/check_training_dependencies.sh
 
 - `training-gpu-constraints.txt` retains torch 2.8.0+cu128 and torchvision 0.23.0+cu128. Proposed data dependencies are TIAToolbox 2.1.3, h5py 3.16.0, scikit-learn 1.8.0 and a compatible pandas. After any backbone dependency change, rerun the relevant GPU benchmark and preserve both before/after records.
 - Real-data smoke testing, learning-rate/cycle selection, completed crop/additional-resize QC, Half-B source preparation and later jobs remain distinct steps. Nothing in these preflight commands starts training or schedules new workloads.
+
+## Direct download of Tian's shared Half B folder
+
+- `shared_half_b.py` replaces the browser-generated ZIP route when that ZIP is invalid. It uses the exact Hopkins shared-folder link supplied by Carlos and the existing `jhu-onedrive` login; it needs no new Python packages or GPU.
+- The default command inspects only: resolve the sharing URL through Microsoft Graph, confirm the folder name, read its root package manifest, and compare Half A's QC/tiling/fold hashes. An authentication or access failure does not establish that the source folder is empty. Cloud access must be confirmed on Run:ai; local tests use mocked API responses and transfer fixtures.
+- Credentials stay in memory/local rclone configuration and are excluded from receipts. The helper never forwards its Graph Authorization header on redirects. Rclone may refresh its saved login token normally. Drive/folder settings are supplied per command; the configured remote root is unchanged.
+
+```bash
+BASE=/workspace/persist/crivas4-microscopy
+ALT="$BASE/gbm-mgmt-wsi-alternative-models"
+export PATH="$BASE/bin:$PATH"
+export RCLONE_CONFIG="$BASE/rclone-config/rclone.conf"
+cd "$ALT"
+python3 -m alternative_models.shared_half_b --base "$BASE" --repo "$ALT"
+```
+
+- After inspection passes, add `--copy`. It downloads only manifest-listed package files and the manifest into `$BASE/packages/.B_qc-v5.download`, using two transfers. Full local SHA-256 verification and the existing canonical Half-B ownership/fold checks must pass before publishing `$BASE/packages/B_qc-v5`. No source files, invalid ZIPs or Half A files are deleted. Existing published output is refused.
+
+```bash
+python3 -m alternative_models.shared_half_b --base "$BASE" --repo "$ALT" --copy
+```
+
+- If interrupted, rerun the same `--copy` command: completed matching files are checked rather than blindly downloaded again; the saved source fingerprint must still match. A changed remote manifest/folder is refused for an existing staging directory. Free-space checks reserve temporary-file headroom.
+- Provenance is written outside the code checkout at `$BASE/experiments/alternative-models/half-b-onedrive/`: inspected manifest, source IDs/manifest SHA-256, file selection, transfer log and final receipt. These contain no OAuth tokens. Full local hash verification supersedes a second network download/check pass.
+- This downloads an existing QC'd package. It does not rerun GrandQC, change thresholds, prepare synthetic sources, launch generation, or start model training. The existing source-score metadata gap remains to be resolved before Half-B generation.
+- Shared-folder read correction: Carlos's Run:ai diagnostic returned `found file when looking for folder` for the direct file form. Reading the folder root with `--include /package_manifest.json --max-depth 1` succeeded and passed A/B manifest compatibility checks. Inspection and copy now use that verified manifest-read form, bounded to 2 MiB plus one byte for oversize detection.
+- The bulk copy already starts at the shared folder root. `--no-traverse=false` is explicit so the manifest file list filters folder listings rather than triggering individual file lookups. Local regression tests check the folder-based manifest command and the bulk-copy flag. Full cloud package transfer and payload verification remain runtime checks; successful manifest inspection alone does not establish payload integrity.
