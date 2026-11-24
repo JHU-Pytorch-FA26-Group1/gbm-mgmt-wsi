@@ -14,8 +14,8 @@
 - Keep patients without accepted variants: their corresponding pools remain real-only. Report this exposure; do not silently change the patient cohort.
 - Actual synthetic fraction is patient/design specific. Twenty percent was an example, not a universal imposed ratio. Crop and resize may retain different numbers after QC. `patient_counts.csv` records those differences; a matched-count secondary analysis is not implemented here.
 - Frozen stage: train attention pooling on every selected cached embedding in a patient's pool. The encoder is frozen and in evaluation mode; cached pixels have deterministic preprocessing. Validation features are cached with the same frozen encoder and training-only stain reference.
-- Fine-tuning: update the entire backbone and attention head. Each cycle traverses every selected tile exactly once, using 256- or 64-tile bags. No replacement or padding; retain the partial last bag.
-- Every bag has an integer quota determined from the cumulative target synthetic fraction. A 20% pool produces 51/52 synthetic tiles per full 256-tile bag, or 12/13 per full 64-tile bag. Cumulative discrepancy is less than one tile; a full cycle uses exactly the selected counts. Strictly 13/64 in every bag is a different fraction and does not exactly traverse a 4,000/1,000 pool without repeats or exceptions.
+- Fine-tuning: update the entire backbone and attention head. Each cycle traverses every selected tile exactly once, using 256-, 128- or 64-tile bags. No replacement or padding; retain the partial last bag.
+- Every bag has an integer quota determined from the cumulative target synthetic fraction. A 20% pool produces 51/52 synthetic tiles per full 256-tile bag, 25/26 per full 128-tile bag, or 12/13 per full 64-tile bag. Cumulative discrepancy is less than one tile; a full cycle uses exactly the selected counts. Strictly 13/64 in every bag is a different fraction and does not exactly traverse a 4,000/1,000 pool without repeats or exceptions.
 - Within the real and synthetic queues, spread selections across slides, spatial blocks and parent families before returning to available siblings. Independence of biological content is not assumed.
 - Average bag losses by their share of the patient's tile count, accumulate gradients, then take one optimizer step per patient per cycle. This prevents more bags from automatically giving a patient more update weight. It is an average of bag-level losses, not an exact gradient of full-pool attention.
 - Fixed per-fold class weight: training-patient unmethylated/methylated count. Adam, FP32, no scheduler. Learning rates, stage cycle limits and early-stopping patience are explicit required inputs, not silently chosen defaults.
@@ -25,7 +25,7 @@
 - These generation manifests are fold-specific. A fold-0 generation is not automatically eligible in another fold; preparation refuses the mismatch. This is not a completed five-fold augmentation study.
 - Backbones currently reused: Swin V2-T and ConvNeXt V2-T. Their current pretrained recipes differ; this code does not change or claim to match those recipes.
 
-## First: test 256 versus 64 on the intended allocation
+## First: test bag capacity on the intended allocation
 
 - Use an isolated checkout based on the latest reviewed `main`; retain the generation checkout.
 - The benchmark runs random tensors and random backbone weights, avoiding a pretrained download. It measures FP32 forward/backward plus Adam state, using a warmup and three measured steps. It produces no valid model-quality result.
@@ -35,18 +35,18 @@
 ```bash
 BASE=/workspace/persist/crivas4-microscopy
 ALT="$BASE/gbm-mgmt-wsi-alternative-models"
-PY="$BASE/patch-env/bin/python"
+PY="$BASE/alternative-models-gpu-env/bin/python"
 cd "$ALT"
 
 "$PY" -m alternative_models.run benchmark --backbone swin_v2_t \
-  --bags 256 64 --out "$BASE/experiments/alternative-models/swin-bag-benchmark.json"
+  --bags 256 128 64 --out "$BASE/experiments/alternative-models/swin-bag-benchmark.json"
 
 "$PY" -m alternative_models.run benchmark --backbone convnext_v2_t \
-  --bags 256 64 --out "$BASE/experiments/alternative-models/convnext-bag-benchmark.json"
+  --bags 256 128 64 --out "$BASE/experiments/alternative-models/convnext-bag-benchmark.json"
 ```
 
 - The intended environment needs compatible torch/torchvision, `timm` for ConvNeXt, TIAToolbox, NumPy, pandas, Pillow, h5py, PyYAML and scikit-learn. Do not blindly reinstall the owner's requirements into the running diffusion environment.
-- Use the Python 3.12 patch environment for initial checks; the owner package loader uses `hashlib.file_digest` (Python 3.11+). The diffusion Python 3.10 environment is a different environment.
+- The separate CUDA environment initially supports benchmarking only; verify/install the full data dependencies before caching or training. Keep the Python 3.12 patch environment for CPU tests; the owner package loader uses `hashlib.file_digest` (Python 3.11+). The diffusion Python 3.10 environment is a different environment.
 - Before actual runs, check imports and save the actual environment versions. Training receipts also retain versions and code hashes. No GitHub/Run:ai/rclone credentials are read into receipts.
 
 ```bash
@@ -102,7 +102,7 @@ cd "$ALT"
 : "${FROZEN_CYCLES:?Choose frozen-stage maximum cycles}"
 : "${FINETUNE_CYCLES:?Choose fine-tuning maximum cycles}"
 : "${PATIENCE:?Choose validation-loss stopping patience}"
-: "${BAG_SIZE:?Choose 256 or 64 from the benchmark}"
+: "${BAG_SIZE:?Choose 256, 128 or 64 from the benchmark}"
 
 PLAN="$BASE/experiments/alternative-models/fold0-pools/plan.json"
 CACHE="$BASE/experiments/alternative-models/fold0-swin-cache"
@@ -128,8 +128,8 @@ done
 ## Tests and limits
 
 ```bash
-"$PY" -m unittest discover -s alternative_models/tests -v
+env LD_PRELOAD="" LD_LIBRARY_PATH="$BASE/patch-env/lib/python3.12/site-packages/torch/lib" OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 "$BASE/patch-env/bin/python" -m unittest discover -s alternative_models/tests -v
 ```
 
-- Tests check exact 5,000-tile coverage at 64/256, quota arithmetic, diversity, reproducibility, nested equal-size pools, no overwrite, held-out/label/pixel-lineage protection, changed QC evidence, duplicate variants, cache corruption, frozen encoder behavior, fine-tuning gradients, patient update counts, failure records and best-checkpoint restoration.
+- Tests check exact 5,000-tile coverage at 64/128/256, quota arithmetic, diversity, reproducibility, nested equal-size pools, no overwrite, held-out/label/pixel-lineage protection, changed QC evidence, duplicate variants, cache corruption, frozen encoder behavior, fine-tuning gradients, patient update counts, failure records and best-checkpoint restoration.
 - CPU integration uses a tiny backbone and deterministic fixture pixels. Actual GPU memory, pretrained downloads, real TIAToolbox data transforms, production HDF5 packages and the completed synthetic QC artifacts still need runtime validation. No such checks are claimed by the fixture tests.

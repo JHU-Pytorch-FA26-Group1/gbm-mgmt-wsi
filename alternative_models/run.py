@@ -36,7 +36,7 @@ def parser():
     train.add_argument("--plan", type=Path, required=True)
     train.add_argument("--cache", type=Path, required=True)
     train.add_argument("--arm", choices=("real", "resize", "crop"), required=True)
-    train.add_argument("--bag-size", type=int, choices=(64, 256), required=True)
+    train.add_argument("--bag-size", type=int, choices=(64, 128, 256), required=True)
     train.add_argument("--frozen-lr", type=float, required=True)
     train.add_argument("--finetune-lr", type=float, required=True)
     train.add_argument("--frozen-cycles", type=int, required=True)

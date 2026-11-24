@@ -1,0 +1,72 @@
+{
+  "phase": "memory-benchmark-only",
+  "valid_for_results": false,
+  "backbone": "swin_v2_t",
+  "fp32": true,
+  "optimizer": "Adam",
+  "random_weights": true,
+  "random_input_tensors": true,
+  "runtime": {
+    "python": "3.12.3",
+    "versions": {
+      "torch": "2.8.0+cu128",
+      "torchvision": "0.23.0+cu128",
+      "timm": "1.0.31",
+      "numpy": "2.5.4",
+      "pandas": null,
+      "tiatoolbox": null,
+      "pillow": "13.0.0",
+      "h5py": null
+    },
+    "cuda": "12.8",
+    "deterministic_algorithms": true,
+    "cublas_workspace_config": ":4096:8",
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition"
+  },
+  "source_sha256": {
+    "alternative_models/__init__.py": "10abad75748b56ae55b80bbb0bbdaa0eeb3ddc12369779b0df1f7df56dd4cf7d",
+    "alternative_models/benchmark.py": "740cbfa0e5e6abd25e30b9bbca9a1c4452eaa602096a7e6e475828e5f0736e7c",
+    "alternative_models/engine.py": "be89b15e068475ffc02dbc004e7c13c5aa96fb32ce243856957a903791556b67",
+    "alternative_models/prepare.py": "5e8f7423cba088f7bda2abc252386fc14eccc00bbf1a87d2ce55b1793599b3bb",
+    "alternative_models/run.py": "7e4b09a68aa6fe53c37b29a69689298952cdf4d8491ae16a2e3c230ff0c04f2c",
+    "alternative_models/sampling.py": "7160448de79318e540ffefb919d5ebd2faa3e93338bf4fae9f6b0f8ea5a7bdd8",
+    "configs/backbones/convnext_v2_t.yaml": "b7c7900ec6c773caa4b59cb820a8d6285eb9a372a158a3a1ec0426aab5d30c4d",
+    "configs/backbones/swin_v2_t.yaml": "e8c5e1f94973762e850951e7f3151f5aef534b1fbb2bcbd6da8cbfc39b5fa83c",
+    "configs/train.yaml": "13f38e5cf8b3636295c4c4fdd3cbee1d96caa31c551d4142439a2d6f60474643",
+    "data_prep/common.py": "e93fd99576118dc666c90d407ddcb9468c6b9255eb96f7491e91c18c92779b86",
+    "data_prep/loader.py": "89323e003de9438d602d7a5111799cb0466a16b735935dc409329b615ecb851d",
+    "training/__init__.py": "fd2a503beb28c71d4981c060aa71938f744d73b562f5da9cba462052143c9823",
+    "training/backbones/__init__.py": "af8b01a5b5c2e8fab88e2b93f03765e6f25a5887cb2839e15cf007a8f88e60cb",
+    "training/backbones/convnext.py": "772b145570d30ba474b15488393c70d8bfa40496ee2026d2cdd0dfb62b4a5865",
+    "training/backbones/swin.py": "f10f88a60af9e7ff0bfaa440ed80f0b7dd0cdd40ce08f04030f598f0f42c0afc",
+    "training/config.py": "f1bb42b497bbde601e486b21b2d6e1b10ae55b3caa4a349f7fa7df4081ab8353",
+    "training/data.py": "1ef62783641ff92deb15829018169a598bac9da19c05b866dfefb0b48036d47c",
+    "training/evaluate.py": "a0e317c934f402881b57561693407e8c2e4956dfb6722ecc5d6acbbc0495b5db",
+    "training/experiment.py": "8423f2ca32aca2f6275b06cd65145507deb55e11333f2f51e1bcc8bd9cbf2c9a",
+    "training/labels.py": "345d7a8c13f58f7cfa2bc23f494864fd57df5a7c56e954ba3a42caced053f0e6",
+    "training/metrics.py": "de2f7c871c54d6da17d2fc13ff921d913693a56e52c343e5e1be9930b2e3033f",
+    "training/models.py": "2708e1c67dd9cb11e078dc0fc211025e8048356ce875bcf3e0bbb85aaa002da3",
+    "training/references.py": "02c00afa3e9d7d2e030cbdd11656c968b6bbc4cb5bad1008784bec78fa276970",
+    "training/report.py": "4f1c8a441af7884b4d3a1ed36fe12309c5a8430776147c4fde8089b5f5395716",
+    "training/run.py": "a9d570ae13561db101d1cab77a7a6a8ccf226d90e7c4ee7a4023a8cc32e0b5ad",
+    "training/tracking.py": "568fe0648ae8c75b85d48ed809ae92a8cafa5eef38e452e263407ead8801477c",
+    "training/train.py": "e1ec28923ca9a516c7240782a157fe09520ad931a75aa31cb17c430b36a49350"
+  },
+  "results": [
+    {
+      "bag_size": 192,
+      "fits": false,
+      "failure": "CUDA out of memory"
+    },
+    {
+      "bag_size": 128,
+      "fits": true,
+      "mean_step_seconds": 0.23336336575448513,
+      "peak_allocated_GiB": 18.399096965789795,
+      "peak_reserved_GiB": 19.568359375,
+      "visible_memory_GiB": 23.898193359375,
+      "reserved_fraction": 0.8188217025754186
+    }
+  ],
+  "limitations": "Excludes real image decoding/Macenko/I/O and attention over full frozen pools; use same bag size in every arm; no automatic training launch"
+}

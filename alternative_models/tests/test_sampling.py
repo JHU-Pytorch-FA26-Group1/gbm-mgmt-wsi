@@ -17,7 +17,7 @@ def rows(real=4000, synthetic=1000, patient="P"):
 class Sampling(unittest.TestCase):
     def test_full_5000_coverage_and_exact_cumulative_ratio(self):
         pool = rows()
-        for size, expected_bags in ((64, 79), (256, 20)):
+        for size, expected_bags in ((64, 79), (128, 40), (256, 20)):
             bags = coverage_bags(pool, size, 42, 0)
             self.assertEqual(len(bags), expected_bags)
             self.assertEqual(Counter(r["tile_id"] for b in bags for r in b),
