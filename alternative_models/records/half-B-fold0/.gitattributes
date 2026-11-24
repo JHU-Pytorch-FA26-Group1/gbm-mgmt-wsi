@@ -1,0 +1,3 @@
+# Preserve exact provenance bytes and their recorded SHA-256 hashes.
+* -text
+*.csv whitespace=trailing-space,space-before-tab,cr-at-eol

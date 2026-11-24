@@ -1,0 +1,95 @@
+{
+  "seed": 42,
+  "verify_per_class": 8,
+  "fold": 0,
+  "crop_batch_size": 8,
+  "engine_sha256": {
+    "his_mmdm_he_augment": "c0a97eacc522e66d330883875d78e1076b8b6ff7d5f1ad04778557464d0891c8",
+    "his_mmdm_batch": "487f1d0a6cffec933090c5962717b6f992ac7fefa644522f7dfb3f8655a7b493",
+    "his_mmdm_corners": "d953ba778b0980219c13c4c4963b3e1f9076967bc9fbeaeb108ccddfd2624f21",
+    "his_mmdm_resize_matched": "40c71dbe2f7b67b74fd96cdf2e5fdf02517756025d88239d859bf929b749dec6"
+  },
+  "crop_core_sha256": "c0a97eacc522e66d330883875d78e1076b8b6ff7d5f1ad04778557464d0891c8",
+  "a_resize_runtime": {
+    "python": "3.10.22",
+    "torch": "2.8.0+cu128",
+    "cuda": "12.8",
+    "numpy": "1.26.4",
+    "pillow": "10.4.0",
+    "cudnn": 91002,
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "compute_capability": [
+      12,
+      0
+    ],
+    "cublas_workspace_config": ":4096:8"
+  },
+  "a_crop_runtime": {
+    "python": "3.10.22",
+    "torch": "2.8.0+cu128",
+    "cuda": "12.8",
+    "numpy": "1.26.4",
+    "pillow": "10.4.0",
+    "cudnn": 91002,
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "capability": [
+      12,
+      0
+    ],
+    "cublas_workspace_config": ":4096:8",
+    "tf32": false
+  },
+  "a_model_flags": {
+    "image_size": 128,
+    "model_type": "unet",
+    "num_classes": 26,
+    "attention_resolutions": "32,16,8",
+    "class_cond": true,
+    "dropout": 0.1,
+    "learn_sigma": true,
+    "num_channels": 256,
+    "num_heads": 4,
+    "num_res_blocks": 2,
+    "resblock_updown": true,
+    "use_new_attention_order": true,
+    "use_scale_shift_norm": true,
+    "diffusion_steps": 1000,
+    "noise_schedule": "linear",
+    "timestep_respacing": "",
+    "use_fp16": true
+  },
+  "qc_receipt_sha256": "e06e437325e170e5647d7e4527a131ddff6e5c9f5e84c3ebfa3229a6f5fd8b3f",
+  "protocol": "half-b-matched-half-a-v1",
+  "base": "/workspace/persist/crivas4-microscopy",
+  "repo": "/workspace/persist/crivas4-microscopy/gbm-mgmt-wsi-alternative-models",
+  "source_subset": "B",
+  "source_count": 2000,
+  "planned_resize": 16000,
+  "planned_crop": 16000,
+  "original_plan_sha256": "f356618a9bcee07f0c91503cf965d72928ab620d884b375282e9102904f7a377",
+  "adapter_sha256": "b2bd09b37c0ed8ffba50ef1eb4c5fa05c0b1a30b81fdddbf654653f36b3b3980",
+  "download_receipt_sha256": "46b47ffc4243d0d06a15d1da72fba7ff17b65a97558004e7cd117faf1e527e57",
+  "population": {
+    "packaged_tiles": {
+      "TCGA": 747522,
+      "CPTAC": 249885
+    },
+    "patients_with_tiles": {
+      "TCGA": 74,
+      "CPTAC": 42
+    },
+    "eligible_fold0_training_tissue_tiles": {
+      "Methylated": 192935,
+      "Unmethylated": 366162
+    },
+    "eligible_fold0_training_patients": {
+      "Methylated": 21,
+      "Unmethylated": 34
+    },
+    "enough_for_1000_distinct_sources_per_class": true
+  },
+  "created_at": "2026-11-24T06:24:26.528375+00:00",
+  "source_review_status": "pending",
+  "review_status": "pending",
+  "training_eligible": false
+}

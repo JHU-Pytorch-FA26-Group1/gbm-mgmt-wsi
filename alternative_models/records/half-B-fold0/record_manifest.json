@@ -1,0 +1,12 @@
+{
+  "files": {
+    "A_synthetic_qc_configuration.json": "e06e437325e170e5647d7e4527a131ddff6e5c9f5e84c3ebfa3229a6f5fd8b3f",
+    "B_package_manifest.json": "6ba3ab0200931c9e18a2b5e34a7af6fbaa55fe2adfaca0d3690337df39dad6d9",
+    "patient_allocation.csv": "e9069b6594a5f58d1bd51a02ef85e6b7f946a51efdedc3d01a830ae802bed131",
+    "protocol.json": "f2ce31ec9bc5c864ad9b15d955b5c667fc7ad97dccc931621429e6c480d28150",
+    "selected_source_metadata.csv": "fdedf6da40b1695f14faeac68d65e16cbbdb3804c1795c8546fbbadf72126c02",
+    "source_plan.json": "f356618a9bcee07f0c91503cf965d72928ab620d884b375282e9102904f7a377",
+    "source_provenance.json": "e6deea1167241f7e96e1706b842a223378009ceac7242caffaab52edd555cb88"
+  },
+  "scope": "Provenance and selection metadata only; no tile images/weights; no automatic Git operations"
+}

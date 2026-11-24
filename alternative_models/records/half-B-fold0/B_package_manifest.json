@@ -1,0 +1,1080 @@
+{
+  "kind": "package",
+  "source_export": "B_20261116_075549",
+  "subset": "B",
+  "complete": true,
+  "tiling_version": "tiling-v7",
+  "config_sha256": "0695c646d30a161c32d6cf6a13a163b0c4e7acddea8bb78b4d477232f8adc274",
+  "code_version": 7,
+  "policy_version": "qc-v5+qc-v5-cptac",
+  "policy_sha256": "d94cc285a0840bf1fb299d5f35a102a13d19f316a4267e22c2c6ca176a3ad7a3",
+  "folds_sha256": "1b4a8e95ac94ede497feb9ed875674d0e27454dd29f5fbbef24ffa8f7333acc7",
+  "export_settings_sha256": "a3706108507b4e548fc84a2781f897fd2233d4132a014403b98d01f21fbfb846",
+  "counts": {
+    "slides": 258,
+    "tiles": 997407,
+    "tiles_reread_from_slides": 58587
+  },
+  "library_versions": {
+    "python": "3.12.16",
+    "tiatoolbox": "2.1.3",
+    "openslide": "4.0.1",
+    "openslide_python": "1.4.3",
+    "numpy": "2.4.3",
+    "opencv": "4.14.0",
+    "h5py": "3.16.0",
+    "pillow": "12.1.1",
+    "scikit-image": "0.26.0"
+  },
+  "created_at_utc": "2026-11-16T09:48:52.069986+00:00",
+  "files": {
+    "export_settings.json": {
+      "sha256": "a3706108507b4e548fc84a2781f897fd2233d4132a014403b98d01f21fbfb846",
+      "bytes": 88903
+    },
+    "modeling_patches.csv": {
+      "sha256": "e9d8037385ab6475f108f8323853e85e0938f33125c876ab090d359317a21a61",
+      "bytes": 355128259
+    },
+    "patient_index.csv": {
+      "sha256": "f9bcd0552f824078b54ebaf035dad69a5ae8aa653312f9d76cf6610d7289a14b",
+      "bytes": 11451
+    },
+    "slide_status.csv": {
+      "sha256": "88542e6bc4b9f49b0f86381eca5257d6a89e2cb4f34665997f72c32dc7a98a20",
+      "bytes": 25635
+    },
+    "tiles/CPTAC/C3L-00365/C3L-00365-21.h5": {
+      "sha256": "fa1ab34513f0b3f768eda4c8ca146538d0978e972f3af999c6b7ddb3f557f6ec",
+      "bytes": 129256782
+    },
+    "tiles/CPTAC/C3L-00674/C3L-00674-21.h5": {
+      "sha256": "60e13ce61c1ff2c39d89aad25b728f28d844bf3841daca924e1b270891719a04",
+      "bytes": 246945688
+    },
+    "tiles/CPTAC/C3L-00674/C3L-00674-22.h5": {
+      "sha256": "fdd78bf53c8886b0b889b711ddf8406c9183292a3d538cf8c67b234d263ec9ca",
+      "bytes": 251350920
+    },
+    "tiles/CPTAC/C3L-01040/C3L-01040-22.h5": {
+      "sha256": "6091e7218ee2a64b6e0213f6be1a297c334fe9856fb46c047f4277f1e4de919d",
+      "bytes": 129511606
+    },
+    "tiles/CPTAC/C3L-01040/C3L-01040-23.h5": {
+      "sha256": "de825770a089c8a8daab0a78e89105f1edc9e22e663f3711af76e865b7f7e5e2",
+      "bytes": 146747040
+    },
+    "tiles/CPTAC/C3L-01043/C3L-01043-21.h5": {
+      "sha256": "c68fea3692489caa453a6a65c76b537940ba2e9b1f8be8ebbae34241fc60a02e",
+      "bytes": 222623090
+    },
+    "tiles/CPTAC/C3L-01043/C3L-01043-24.h5": {
+      "sha256": "782cfe7ac47d959c09dd94ce2b1f35eb45dbaeaeae7ece9555463724fcf6d7c0",
+      "bytes": 446555194
+    },
+    "tiles/CPTAC/C3L-01149/C3L-01149-21.h5": {
+      "sha256": "fd2a11e4029e9e86efeeae0b406398f4118239b24d2b9166d24982c997bd4626",
+      "bytes": 537007194
+    },
+    "tiles/CPTAC/C3L-01149/C3L-01149-22.h5": {
+      "sha256": "8d307c59d347ad52422420875b7b0beeb812b047218af05daf62bf6c74e4fa03",
+      "bytes": 235057576
+    },
+    "tiles/CPTAC/C3L-01154/C3L-01154-22.h5": {
+      "sha256": "8410e89ae8244bd1646a9c8e4d3d98655085fab0cb3da0a945bfe1081b4b11ae",
+      "bytes": 125126080
+    },
+    "tiles/CPTAC/C3L-01154/C3L-01154-23.h5": {
+      "sha256": "7683796d6c6656b92d209d3807ce7e46f482b7237ce003411199a208e429308f",
+      "bytes": 157397724
+    },
+    "tiles/CPTAC/C3L-01155/C3L-01155-21.h5": {
+      "sha256": "400fa1bbfb0516907f3e01822aca6f6391437cd05053a3e3c3ba12830086194f",
+      "bytes": 91294792
+    },
+    "tiles/CPTAC/C3L-01155/C3L-01155-22.h5": {
+      "sha256": "379e7f4f97e8e2e02fdae5cd6328c7c3dcface05b1e7179541ad3e8bb33985c8",
+      "bytes": 62197260
+    },
+    "tiles/CPTAC/C3L-01157/C3L-01157-21.h5": {
+      "sha256": "d77d9c2af7814465c40527b9c442cf2f87d3e1ce15dacf9330e04e8e53a88270",
+      "bytes": 546780720
+    },
+    "tiles/CPTAC/C3L-01157/C3L-01157-23.h5": {
+      "sha256": "8333fc4ce034037e855928d52bb4d7d94b36cc729ea993d12dc19765cf2d9af7",
+      "bytes": 436619080
+    },
+    "tiles/CPTAC/C3L-02465/C3L-02465-21.h5": {
+      "sha256": "fa22f1364362d52168dbff032c141e3e35c6e04ef403dc5b15041e78ae333926",
+      "bytes": 154618252
+    },
+    "tiles/CPTAC/C3L-02465/C3L-02465-22.h5": {
+      "sha256": "75bb4273dcc78251b9562b8b18e2b38128d6dc1d14581acaf4cc1b298fddd379",
+      "bytes": 207210080
+    },
+    "tiles/CPTAC/C3L-02504/C3L-02504-21.h5": {
+      "sha256": "fb4b6c0959a42e63c15d49ec02c3982a862f55038fb23a82dd0bef124434b1b6",
+      "bytes": 40183566
+    },
+    "tiles/CPTAC/C3L-02504/C3L-02504-22.h5": {
+      "sha256": "5b544d500b3686fbafc8fc28fb7e4143eb60729b94256789661d8164f0aa7700",
+      "bytes": 14094832
+    },
+    "tiles/CPTAC/C3L-02955/C3L-02955-21.h5": {
+      "sha256": "db718a9fd826b76e5a45682ab19e7f0da11e85d05ffd64ff670b632c037d9a18",
+      "bytes": 76965589
+    },
+    "tiles/CPTAC/C3L-02970/C3L-02970-21.h5": {
+      "sha256": "4b319b6f4d5bcc958a81efeda7c3973b3a38964ca3030024d7b65c65e8f6232a",
+      "bytes": 559481728
+    },
+    "tiles/CPTAC/C3L-02970/C3L-02970-22.h5": {
+      "sha256": "cf72d10537dd85320fe7cdd785b70a00af0f6f18ab033211a88a30c7fdccaab1",
+      "bytes": 588140824
+    },
+    "tiles/CPTAC/C3L-02970/C3L-02970-23.h5": {
+      "sha256": "dd4e092248cf9d3b9d5dc64ff05e27e469a98730471b8c424251cfdb46b28dec",
+      "bytes": 586069984
+    },
+    "tiles/CPTAC/C3L-03260/C3L-03260-21.h5": {
+      "sha256": "c0cba31ff8d2321ea712f368ed06fdb5dbca6d816bd947deb1909ac2adb96496",
+      "bytes": 56261716
+    },
+    "tiles/CPTAC/C3L-03392/C3L-03392-21.h5": {
+      "sha256": "f657825df38883789b7f6cbe46a121ff6a17f6d44e795450b22faa7b2204806d",
+      "bytes": 82684898
+    },
+    "tiles/CPTAC/C3L-03392/C3L-03392-23.h5": {
+      "sha256": "57874854ff26b320c57db4afcf8f38affcbe4b05def4e117bead112c00d4ccd7",
+      "bytes": 144402424
+    },
+    "tiles/CPTAC/C3L-03728/C3L-03728-21.h5": {
+      "sha256": "f7ebedfe3b40f9fad5540e38e111dc7dbeb575356fd48cb32342bcffa5e0ec48",
+      "bytes": 42616049
+    },
+    "tiles/CPTAC/C3L-03744/C3L-03744-21.h5": {
+      "sha256": "81f4fe5d85e6184fa44c207e21abe8e832486e50f4469592c91efe180473a42b",
+      "bytes": 558783752
+    },
+    "tiles/CPTAC/C3L-03744/C3L-03744-22.h5": {
+      "sha256": "233d80263d6bdcaa98e72a764665b78152115eaa1fde334b87f9377befabc0e8",
+      "bytes": 566370160
+    },
+    "tiles/CPTAC/C3L-03744/C3L-03744-23.h5": {
+      "sha256": "e24f47373be53ac62fae25247d20d859c0ae78de547f8753fe527eb0e0fd0c71",
+      "bytes": 554077552
+    },
+    "tiles/CPTAC/C3L-03748/C3L-03748-21.h5": {
+      "sha256": "9394cdcc7e7dab8628f12c287d7adcc167f12df8e2ab08cf67306b85d561d6bb",
+      "bytes": 554326112
+    },
+    "tiles/CPTAC/C3L-03748/C3L-03748-22.h5": {
+      "sha256": "393a829845720c13279cb328f8b8a2103492bd8a5eab60e6ee1c5be43aff07c9",
+      "bytes": 566059816
+    },
+    "tiles/CPTAC/C3L-03748/C3L-03748-23.h5": {
+      "sha256": "8d7c65f6275a1d73c52168f8d202343b777cec32669f7487ef41c355e5d20adb",
+      "bytes": 561719968
+    },
+    "tiles/CPTAC/C3L-03748/C3L-03748-24.h5": {
+      "sha256": "619b787d98ab68dbd5a7d0f8511ffd5578e51cea6fff720ab4f2d239784ff33b",
+      "bytes": 573235784
+    },
+    "tiles/CPTAC/C3L-03968/C3L-03968-21.h5": {
+      "sha256": "9f4b30c83eae52e7c5538b7fc2c037602b3845e6e77067174806aebe83103da1",
+      "bytes": 295907560
+    },
+    "tiles/CPTAC/C3L-03968/C3L-03968-22.h5": {
+      "sha256": "0e2c09af4dcaa7d4ec841a40e6d3601b3b4b8430b32a7e4bbaf61f7572143b9f",
+      "bytes": 570978256
+    },
+    "tiles/CPTAC/C3L-03968/C3L-03968-23.h5": {
+      "sha256": "fc096253f86224b3e5d10f812ce1cc62454acd457d5e99e0c97d084fe77b5493",
+      "bytes": 146700532
+    },
+    "tiles/CPTAC/C3L-03968/C3L-03968-24.h5": {
+      "sha256": "31a1204742c8a0bc986679967c2716db736af221b6d32b7437a1168d15a19ef8",
+      "bytes": 552492860
+    },
+    "tiles/CPTAC/C3L-03968/C3L-03968-25.h5": {
+      "sha256": "fc6f09f0ac96b9e0e70f4656d72a9f01c86c6b34e7ecef4e91ad6b8e18435a97",
+      "bytes": 350881256
+    },
+    "tiles/CPTAC/C3N-00665/C3N-00665-21.h5": {
+      "sha256": "938955e38eba1dfd5cc7798cd730b852ac75e8a4719972123a2c975c9833d1bf",
+      "bytes": 565489640
+    },
+    "tiles/CPTAC/C3N-00665/C3N-00665-22.h5": {
+      "sha256": "0a407478e164258b9aac4b6c9b3ac9a50d738e7cfa602b06bfc488182028de1c",
+      "bytes": 543171908
+    },
+    "tiles/CPTAC/C3N-00665/C3N-00665-23.h5": {
+      "sha256": "ec00fa0916650b9cd3287160b7a7b03e51d16d12cae37843eba2a3844dfd652d",
+      "bytes": 557758712
+    },
+    "tiles/CPTAC/C3N-00665/C3N-00665-24.h5": {
+      "sha256": "016383cabdd0586f29b2893fc1d77e169091bae4388e7341340e59362e8cbce0",
+      "bytes": 550153280
+    },
+    "tiles/CPTAC/C3N-01192/C3N-01192-21.h5": {
+      "sha256": "70bb191b5a92b53bbc5482dd0355e9d2798712c58058d3637d71962c67df527d",
+      "bytes": 289166890
+    },
+    "tiles/CPTAC/C3N-01192/C3N-01192-23.h5": {
+      "sha256": "3c85e80471568a2bf54d507d67cb1103744b7f49ad2959b36a06f64a580b5004",
+      "bytes": 148481246
+    },
+    "tiles/CPTAC/C3N-01192/C3N-01192-25.h5": {
+      "sha256": "08ff882642cbba81dcbd78767bea347b8455447c0e386a8248ce321957353660",
+      "bytes": 160791510
+    },
+    "tiles/CPTAC/C3N-01334/C3N-01334-22.h5": {
+      "sha256": "6df3324a885e47643637ea67f5661c587469fe7d5c2805c054b166e023f2ce7f",
+      "bytes": 130556298
+    },
+    "tiles/CPTAC/C3N-01334/C3N-01334-23.h5": {
+      "sha256": "aac1642866fbbe6be7520b3daf2021215412ba29e240dd2045bb7ed99a288f9f",
+      "bytes": 213591632
+    },
+    "tiles/CPTAC/C3N-01366/C3N-01366-21.h5": {
+      "sha256": "b7a9246fb2c0f8b8182bdee990df09faa006c9a924dcdd0aa1daa83b0ce351be",
+      "bytes": 127921222
+    },
+    "tiles/CPTAC/C3N-01366/C3N-01366-22.h5": {
+      "sha256": "7dcb0db1ba9315ecfd3053eaef4e342b6b746eac72f84f919fbc728a6f82b66b",
+      "bytes": 79431988
+    },
+    "tiles/CPTAC/C3N-01369/C3N-01369-21.h5": {
+      "sha256": "52a9b407c928d0858c7d1c3d6a0384eca0c017cc854ee6428bb55133c6761cc6",
+      "bytes": 379633050
+    },
+    "tiles/CPTAC/C3N-01515/C3N-01515-21.h5": {
+      "sha256": "af4a24f2916499ea0ac737e9cfed17fbcb4000cea1ff74055107c3a947cf3be1",
+      "bytes": 269851322
+    },
+    "tiles/CPTAC/C3N-01518/C3N-01518-21.h5": {
+      "sha256": "82c48c7f40823cf707f5bad64d96371735980477a53d98fff5904dce3d2eab4c",
+      "bytes": 66518236
+    },
+    "tiles/CPTAC/C3N-01518/C3N-01518-22.h5": {
+      "sha256": "891a94dcd20f7f9600738789303f49e27a55beb50df8d142adf30f19616e7fa3",
+      "bytes": 116584562
+    },
+    "tiles/CPTAC/C3N-01518/C3N-01518-23.h5": {
+      "sha256": "1567096ffddf94e39bae8d38a56b1e9c27b2eea9fe5d5dd08ef8476afb42d280",
+      "bytes": 188203420
+    },
+    "tiles/CPTAC/C3N-01798/C3N-01798-21.h5": {
+      "sha256": "12d4f1402438e49ae22184b832421abbb998398a6849911df91dae86f4e3445b",
+      "bytes": 403747610
+    },
+    "tiles/CPTAC/C3N-01798/C3N-01798-22.h5": {
+      "sha256": "de2e0e7c728ff30fc2dfd97e5def1d17c94d61f6e94c7dcce0f144a028c82db1",
+      "bytes": 265534808
+    },
+    "tiles/CPTAC/C3N-01798/C3N-01798-23.h5": {
+      "sha256": "118f41bd881b312e81b93efc6a65a4193972f749a654501a3f84ccf8a1150dc4",
+      "bytes": 196416116
+    },
+    "tiles/CPTAC/C3N-01816/C3N-01816-21.h5": {
+      "sha256": "da058085b791da8addc1dbfde2c84ddfbd8e5996c4aac4e028f3120af1f197b6",
+      "bytes": 139918608
+    },
+    "tiles/CPTAC/C3N-01816/C3N-01816-22.h5": {
+      "sha256": "db59468e074111278f60736d5789c6973ced289d54ba0eed3ed6d49602144bd4",
+      "bytes": 147709062
+    },
+    "tiles/CPTAC/C3N-01818/C3N-01818-21.h5": {
+      "sha256": "fb8111ce9316742d9392f4936d27d7c92aba63899e5a841d2a5ed73ba45417d2",
+      "bytes": 289649768
+    },
+    "tiles/CPTAC/C3N-01818/C3N-01818-22.h5": {
+      "sha256": "a289ff575f658d693d4e36a601f6f0e4e407149c2a7720be561701abf7d3f4ff",
+      "bytes": 220964062
+    },
+    "tiles/CPTAC/C3N-01818/C3N-01818-23.h5": {
+      "sha256": "75ee1a1458df3453a44c93bdb86ef4732983b4179bb31fc8b0a76c7759f064d0",
+      "bytes": 417053780
+    },
+    "tiles/CPTAC/C3N-01851/C3N-01851-21.h5": {
+      "sha256": "123966ed090eb5a7004af2fc0cfc2477abb542e1f055fb8f8992bdb1887916e2",
+      "bytes": 282944640
+    },
+    "tiles/CPTAC/C3N-02185/C3N-02185-21.h5": {
+      "sha256": "9469c161e3eadd839b740140caca865f4074383a5cbba9af3a329917eaea69b8",
+      "bytes": 360254966
+    },
+    "tiles/CPTAC/C3N-02185/C3N-02185-22.h5": {
+      "sha256": "803c4995c350fb1308d99cd9c9ea303b2c99b6ed409b4ea1fe2282749ee7a5e6",
+      "bytes": 288849152
+    },
+    "tiles/CPTAC/C3N-02185/C3N-02185-23.h5": {
+      "sha256": "36887b837c48fc03e1d0d8e5105f3427d85c22f590c2f531711acab2df1b0dae",
+      "bytes": 409661488
+    },
+    "tiles/CPTAC/C3N-02186/C3N-02186-21.h5": {
+      "sha256": "7db4b7834e565ebdc0c7219a7c10db5e886d152b3f627229359a699219bd706a",
+      "bytes": 291793400
+    },
+    "tiles/CPTAC/C3N-02186/C3N-02186-22.h5": {
+      "sha256": "be1e578731601a940ce9f2623bef3f3c92b7af4c3a9f9aed193f22df46f2e569",
+      "bytes": 291709354
+    },
+    "tiles/CPTAC/C3N-02186/C3N-02186-23.h5": {
+      "sha256": "0b4e35654ec8a2e25d1a592ec06b5921eccb1c6e028a6f1c064d52eca65c1a64",
+      "bytes": 562648864
+    },
+    "tiles/CPTAC/C3N-02255/C3N-02255-22.h5": {
+      "sha256": "e3be365e19659d70ce1e125efd35473096143ed5102ac083510ec30b59294d27",
+      "bytes": 244775416
+    },
+    "tiles/CPTAC/C3N-02256/C3N-02256-21.h5": {
+      "sha256": "1ce6abede8dfc24f5a46ac8cfb1012197072584a5bdd5b78e303a55231db86f6",
+      "bytes": 306879018
+    },
+    "tiles/CPTAC/C3N-02769/C3N-02769-21.h5": {
+      "sha256": "77f040184c28658679e99b407e0ff1c7d47d56fde192d9e63a1b8e720eb5e831",
+      "bytes": 310333642
+    },
+    "tiles/CPTAC/C3N-02769/C3N-02769-22.h5": {
+      "sha256": "e7ddb0cbc2cef43afe2d6f25996606f9b58125d2aa57c845366ba378b16a93e2",
+      "bytes": 501359736
+    },
+    "tiles/CPTAC/C3N-02769/C3N-02769-23.h5": {
+      "sha256": "1a6f269f26a7c654bf15e880da435003db6a2ab04419a5e7718cac608100ed57",
+      "bytes": 222542758
+    },
+    "tiles/CPTAC/C3N-02782/C3N-02782-21.h5": {
+      "sha256": "a9fbe7e4efdbc62a85a4d860ebe96a5a17c46a58955904dd6d2dd733c30b3ae7",
+      "bytes": 107218710
+    },
+    "tiles/CPTAC/C3N-02784/C3N-02784-21.h5": {
+      "sha256": "07a9cd2c1f53cd77a0ce0f2a795052d063c339a3389199ce75c9d888ee4af64b",
+      "bytes": 196381930
+    },
+    "tiles/CPTAC/C3N-02784/C3N-02784-22.h5": {
+      "sha256": "a69431ccf1cc37109a33ee37ff23e7fcf620e881fedf590e756b9040d2b32fef",
+      "bytes": 129787244
+    },
+    "tiles/CPTAC/C3N-02784/C3N-02784-23.h5": {
+      "sha256": "df484dd58f5695b0dbc6a2b314c530b1fd0e5704d7b8f543d78f3b643d18dbfc",
+      "bytes": 293892720
+    },
+    "tiles/CPTAC/C3N-02786/C3N-02786-21.h5": {
+      "sha256": "cd9c583c7fad168dd0b81c2d0ea4c6de23177452e3c853ec24541b3e6253c857",
+      "bytes": 211737904
+    },
+    "tiles/CPTAC/C3N-02786/C3N-02786-22.h5": {
+      "sha256": "db671e4b4d22afafb0413c8b60577cb4e771be2a56a9f933322b5343253f0728",
+      "bytes": 196405686
+    },
+    "tiles/CPTAC/C3N-02786/C3N-02786-23.h5": {
+      "sha256": "c5ab4937e9898b1e2f894c8bd9ce669d7577943c9ba9057e3a603aa8ab47375f",
+      "bytes": 121520106
+    },
+    "tiles/CPTAC/C3N-02788/C3N-02788-21.h5": {
+      "sha256": "20f9ca7716670359e98d2ab34f406f4d051ce7885238c95f97d9793ff311b11a",
+      "bytes": 115996386
+    },
+    "tiles/CPTAC/C3N-02788/C3N-02788-22.h5": {
+      "sha256": "9351e3ddf064d7f80aefb016cbcc2ef9d8631b5d550f732bbcea94ec52d651f1",
+      "bytes": 168493352
+    },
+    "tiles/CPTAC/C3N-02788/C3N-02788-23.h5": {
+      "sha256": "6f6b5d22bea6db1dc95ac5158856d619528f168d6ba78aa530f7dd763251479c",
+      "bytes": 124094236
+    },
+    "tiles/CPTAC/C3N-03182/C3N-03182-21.h5": {
+      "sha256": "ebf7f110e81bbb8186704e0bff35705d2fef3f393b54c42f1ab8a4db531af78d",
+      "bytes": 143861508
+    },
+    "tiles/CPTAC/C3N-03182/C3N-03182-22.h5": {
+      "sha256": "d0e5c9f7fab3cf5a306837da7a189aa434c7d1c651236fbaf2cdf5925633f218",
+      "bytes": 195852630
+    },
+    "tiles/CPTAC/C3N-03182/C3N-03182-23.h5": {
+      "sha256": "d9678bc9a08e872a8eaefdce1a68dea9ed709591d3fd55822f71adaa4dd846bc",
+      "bytes": 40601670
+    },
+    "tiles/CPTAC/C3N-03183/C3N-03183-21.h5": {
+      "sha256": "7d29e9905381b47ec969f7f9604f8cf8a821eabcec893d8ae22af57ab7cbc7a0",
+      "bytes": 41656000
+    },
+    "tiles/CPTAC/C3N-03183/C3N-03183-22.h5": {
+      "sha256": "8115edd10d9756471ec22b74205beeee1408ffcc68218d205b4579ee7085d01d",
+      "bytes": 78455933
+    },
+    "tiles/CPTAC/C3N-03183/C3N-03183-23.h5": {
+      "sha256": "447b97950863c725d00303bba31b4a0d4658cbbe9045bacf2fc420b2e51611fa",
+      "bytes": 81281898
+    },
+    "tiles/CPTAC/C3N-03184/C3N-03184-21.h5": {
+      "sha256": "562628d993b79322650f6270d9759586a82a02cb41fd8342b5c8799fff088e81",
+      "bytes": 76941904
+    },
+    "tiles/CPTAC/C3N-03184/C3N-03184-22.h5": {
+      "sha256": "29772e4fdd50a60d7ab96c165e9a5bd4a9d63d4b47cc19f255e456a419aa120c",
+      "bytes": 76279714
+    },
+    "tiles/CPTAC/C3N-03184/C3N-03184-23.h5": {
+      "sha256": "36119c6ae21a5a6156482ba668c204566e1b20c93f3af0092a4bda4307ac520c",
+      "bytes": 62540120
+    },
+    "tiles/CPTAC/C3N-03473/C3N-03473-21.h5": {
+      "sha256": "1caa530cd3710a03f259564dc0fabccabc23356ff89ff3d503c9a75ff13eb7ff",
+      "bytes": 60648932
+    },
+    "tiles/CPTAC/C3N-03473/C3N-03473-22.h5": {
+      "sha256": "18bb3c05b62df5a103285616553a3d508cd60035c5ecf3a3d0ad3d0574ee1038",
+      "bytes": 46500740
+    },
+    "tiles/CPTAC/C3N-03473/C3N-03473-23.h5": {
+      "sha256": "c6a3ea273f008df4e45154852f35cf5166f976ffff8463a1cb6b3aee0df52526",
+      "bytes": 63013852
+    },
+    "tiles/TCGA/TCGA-02-0001/0de078d1-27d2-43fc-8173-ee9cf8e42e42.h5": {
+      "sha256": "f47200717c989a8d06aa4ed21ce5696a571b23ed2052ce307dab82b21f78e2e3",
+      "bytes": 579495684
+    },
+    "tiles/TCGA/TCGA-02-0001/27021ae8-db7e-4245-9307-f3bdae43c4b3.h5": {
+      "sha256": "37714426f42e0f7105920cfdaf70a102eb5073c1c0d26630ade3b1b3948f7dad",
+      "bytes": 570126972
+    },
+    "tiles/TCGA/TCGA-02-0001/6486cbcf-5c7e-4a51-879c-df2dd5487524.h5": {
+      "sha256": "b49c11227f1dd186ce69f997ea896eb168b40220b665ce029989cdbbc70c63e6",
+      "bytes": 585414300
+    },
+    "tiles/TCGA/TCGA-02-0009/0af7eabf-001b-49e8-8013-100e2f266bb6.h5": {
+      "sha256": "5ebc2e0d4e7d0ff4683a80314fd94a91e1f066849588f972b9de56535843196c",
+      "bytes": 603640612
+    },
+    "tiles/TCGA/TCGA-02-0009/6920c77a-2b3a-44b2-bc98-4d0960a36627.h5": {
+      "sha256": "ab27d753fee071f121e955a533766411df8e0f27ccae021c07e82de3cd6e51b1",
+      "bytes": 579793500
+    },
+    "tiles/TCGA/TCGA-02-0009/80b2033f-aff5-4e36-935b-51831224c74b.h5": {
+      "sha256": "c84a8d259ebbe557c09f22b8fe03679a6ac628421edeaa200d1e6592567fb5d5",
+      "bytes": 659332340
+    },
+    "tiles/TCGA/TCGA-02-0021/23b6a9db-fd81-4ee8-a683-6f3c0288bef3.h5": {
+      "sha256": "659dd7736d8504560f9b3161ae34388f68f4493ac68579215ac5496747aeea64",
+      "bytes": 629742684
+    },
+    "tiles/TCGA/TCGA-02-0021/e89ea619-23c5-469e-adda-49aa992317b8.h5": {
+      "sha256": "692cfe15432d6441c356e4761de54ba73599a1d7ac451bbde9da7cb3aa6af370",
+      "bytes": 623350948
+    },
+    "tiles/TCGA/TCGA-02-0027/d8340b1c-13a5-4d0a-8ad1-adc8a93f15eb.h5": {
+      "sha256": "f1c4f342ff471d6446a408095fa47ded8b4c6930e6a5276b4530d980f921bdff",
+      "bytes": 617408996
+    },
+    "tiles/TCGA/TCGA-02-0034/203764ba-3d08-4ddc-80b2-76b63546f99b.h5": {
+      "sha256": "6927052ed14dcf0b3c8663375aa8fb09c2fed00c03a72a425f5210f28f54fafe",
+      "bytes": 614865596
+    },
+    "tiles/TCGA/TCGA-02-0034/90794e79-3279-4185-bbda-d5d0833b00cf.h5": {
+      "sha256": "06b774cce666d8a14ee10725dd623a20a91536c9235e59f3f1d808b1129ac4f9",
+      "bytes": 690381084
+    },
+    "tiles/TCGA/TCGA-02-0034/9171a524-a8d1-48d4-83d9-cb7de0968646.h5": {
+      "sha256": "cf976bb3f07e58ec5323411ae3e016f636a20fba4e28acbd6662e1d5ece109bc",
+      "bytes": 626580260
+    },
+    "tiles/TCGA/TCGA-02-0038/06967879-1e64-44ca-8de0-1fffb715871c.h5": {
+      "sha256": "e3639bdbc59c35705318319c7eb0fcd58245b952a302a850e602b4134171c576",
+      "bytes": 651325172
+    },
+    "tiles/TCGA/TCGA-02-0047/d653e0f5-954b-47e8-9fd1-a210a093e468.h5": {
+      "sha256": "714888bdc45f9a0a5fed3370de970488ad96560c1ed3bb33bcb241f18beb44a1",
+      "bytes": 665981804
+    },
+    "tiles/TCGA/TCGA-02-0069/93e484d0-d46c-40cf-94af-a74b7bc9b2d9.h5": {
+      "sha256": "ba62175b6de88da46e3d8143731067fb181d692bf7184305b416de39dc1405d1",
+      "bytes": 671611844
+    },
+    "tiles/TCGA/TCGA-02-0075/71b88c9a-e40b-41f8-ab1c-f45ddc638c7b.h5": {
+      "sha256": "69aaef4500e072f2e34cf9fdf8338621c89da35681dea50d0690cfc1b8324ce3",
+      "bytes": 683920596
+    },
+    "tiles/TCGA/TCGA-02-0099/b822fb8f-b9f7-4519-9db7-f86535ff5b6b.h5": {
+      "sha256": "21a7c5c56bb49546f9b212754692433557b193640c0031311384cc158888796a",
+      "bytes": 663567724
+    },
+    "tiles/TCGA/TCGA-06-0122/57c5ed92-72ad-44ff-8a00-6cb09a6694aa.h5": {
+      "sha256": "172a9f53085caa5a3ade72223f036e867ea72fa4fd6767c8000c31dd158720fa",
+      "bytes": 205917845
+    },
+    "tiles/TCGA/TCGA-06-0122/a9cb48a8-613a-4add-a7a2-cc40ba4b5b04.h5": {
+      "sha256": "fd8c9e8f31c6236b4170f51c03e687cf51abb8c544aa8c838ed424ec649fa86e",
+      "bytes": 272303924
+    },
+    "tiles/TCGA/TCGA-06-0122/bb1268fa-eaa2-4933-a929-7f0ef508e65b.h5": {
+      "sha256": "d765f05f9fff6b0651031819c7a43a7a76efe03baf01bd7a4eef9b745170c5ac",
+      "bytes": 414106838
+    },
+    "tiles/TCGA/TCGA-06-0124/1465deec-ba46-4788-9d12-4e61822a5d29.h5": {
+      "sha256": "4f229f0f66a6fb6bfc8bf7178d6e6146abd7f767bd1f74fbb3eaec91d16ecfeb",
+      "bytes": 606857380
+    },
+    "tiles/TCGA/TCGA-06-0124/3272fd7b-c468-4733-a124-f20b19ec787d.h5": {
+      "sha256": "1459abde1f449fb0fee6d1dd9d7fa854615a82cc1f1efc92542d88558a6b2162",
+      "bytes": 285444889
+    },
+    "tiles/TCGA/TCGA-06-0124/40b2e9b9-b983-44f3-879d-a21575671dd4.h5": {
+      "sha256": "e697f35e49748ad0ef5867b42fbc5d255ff860d595aeca3c955a6916c5d25fec",
+      "bytes": 596574820
+    },
+    "tiles/TCGA/TCGA-06-0124/a0640ad0-5ba8-4b85-adbf-03718dc0a0eb.h5": {
+      "sha256": "1f9120fa0ba14448032e2cd4e518c1339b7bdf72e23a89fc86bde5121d8faf96",
+      "bytes": 619475524
+    },
+    "tiles/TCGA/TCGA-06-0124/d32d8225-d50f-4bbb-b8a3-eecc74dbab1c.h5": {
+      "sha256": "0d3fc84663d726cb64d23232350fabb3983265fbd4734db85df2cfbb440d4dd7",
+      "bytes": 426624318
+    },
+    "tiles/TCGA/TCGA-06-0124/ec40dd56-14c7-4a28-b4f5-46d74ed6695c.h5": {
+      "sha256": "4ce0c0761b85af8b4421b3f6eae0c6d6de0d96c09daa772b11ab40c1d639fab8",
+      "bytes": 599629956
+    },
+    "tiles/TCGA/TCGA-06-0125/ae4fa8d9-267a-4d47-93f8-e8e2b8beb871.h5": {
+      "sha256": "46146e8fd35bbc0c9e31bcf896cd83e82e9a5a76f31538f3c20c908c73397a0d",
+      "bytes": 562833692
+    },
+    "tiles/TCGA/TCGA-06-0125/e386fae4-629e-4669-b565-05ced9605452.h5": {
+      "sha256": "37b17a33f20198995ee5f336823ef08606f56e392d2c1e7f859f019fc27ec0fc",
+      "bytes": 132509274
+    },
+    "tiles/TCGA/TCGA-06-0126/25c35bb5-bb8d-403b-9a7f-f010e00de14d.h5": {
+      "sha256": "5074f0e625eb8174b73bfe82f0fcb36a5f89433f4c67b75543323be73d96be44",
+      "bytes": 256243970
+    },
+    "tiles/TCGA/TCGA-06-0126/c095d1f0-d71f-4ae5-84b6-6cc45834a55a.h5": {
+      "sha256": "858961168e408ecc03acd31111a981279db5a664323f49c0384e72c197aaf58d",
+      "bytes": 312350280
+    },
+    "tiles/TCGA/TCGA-06-0137/53019d34-4780-42bf-8800-34da021b98cd.h5": {
+      "sha256": "e7126df1354fd6b7bbb05efa20462204bc25ba04465c33436ccea19fbd060900",
+      "bytes": 240265422
+    },
+    "tiles/TCGA/TCGA-06-0137/7ffe1f16-b6be-4ea4-9c89-a0b9e7696b56.h5": {
+      "sha256": "fddccf49207e7fe967aa28dc43338e0845f30712fed4464838ddf961c16ca88a",
+      "bytes": 581846804
+    },
+    "tiles/TCGA/TCGA-06-0137/97263433-36d7-46c6-80f2-6d61c5cdcbe8.h5": {
+      "sha256": "07623abdfd902a124c5966e38fa55087dc78586ee19ba9ed5a09a5b6d5f5ff09",
+      "bytes": 572756780
+    },
+    "tiles/TCGA/TCGA-06-0137/aa0cca26-8846-4340-9569-78e1a2fb62a5.h5": {
+      "sha256": "63265c0b27a53e331220193db633d6f9f4daab14990f9741fb2f9396a1886fa0",
+      "bytes": 529116884
+    },
+    "tiles/TCGA/TCGA-06-0137/c202106a-ec0a-475f-8c70-37396f61c0a3.h5": {
+      "sha256": "671b3c9cfddf30476e3c172cc1b036c7106c63dbe96b836ea13121389bf5df04",
+      "bytes": 564931476
+    },
+    "tiles/TCGA/TCGA-06-0137/edbd8c1b-b823-4cd9-ad18-425d244f2c8a.h5": {
+      "sha256": "35d017155ebc7f0ca1a2b259cd10d741df09d228d7fb001c45a0269f54e3842c",
+      "bytes": 173019802
+    },
+    "tiles/TCGA/TCGA-06-0137/fdffd302-f1ef-466c-8f71-ea6776ef5165.h5": {
+      "sha256": "2d1a3c807f9d259d6062f0736e529717a534bc6c58000fc8b2f96bed4435489a",
+      "bytes": 584750572
+    },
+    "tiles/TCGA/TCGA-06-0141/43fb7edb-6c3b-46c6-b8b3-d43f96893236.h5": {
+      "sha256": "d796a2cd5541ef00ad9ae8cb0546f652e0ad3bd74e96d05dedde650655228df6",
+      "bytes": 281884905
+    },
+    "tiles/TCGA/TCGA-06-0141/4ef12f7b-cbe4-42e1-a341-063abd652989.h5": {
+      "sha256": "b8352c583769a41aaee631e548ce24864cab1fe542ee0081e19dafade166c0a3",
+      "bytes": 590330660
+    },
+    "tiles/TCGA/TCGA-06-0141/a7df1fcd-09c2-4a3d-99f3-f21bae178981.h5": {
+      "sha256": "fce1a2da7525f0b4177b752750de7e904ff397e5bd03bc771959f3ca4a94f953",
+      "bytes": 557881333
+    },
+    "tiles/TCGA/TCGA-06-0141/e31f714b-07fd-4cc1-8231-934abf258bad.h5": {
+      "sha256": "2bee6367b34b5773dee5c477e7c61e31b997a7794311cf2ca53945b702bbcc68",
+      "bytes": 572471101
+    },
+    "tiles/TCGA/TCGA-06-0141/f283f239-1df7-4c78-9104-3f2c311a097e.h5": {
+      "sha256": "679b27e1610b38245ab77ef76cf78179a7a02f73ea82b6a2731c524ecd198812",
+      "bytes": 601008044
+    },
+    "tiles/TCGA/TCGA-06-0147/46515f0c-29de-4fd3-8c1a-684770654dcb.h5": {
+      "sha256": "e4fda5bc3939bcc1796e5f9b3971c1ef7a6cfb2184df34aa4c25cffd66db8a2e",
+      "bytes": 425828902
+    },
+    "tiles/TCGA/TCGA-06-0147/d8540a6c-760d-41ab-b31c-8f4addef5781.h5": {
+      "sha256": "85f15c943713c67b56843e1ca151eeff4276f97a951aa41223ff64ec77e78782",
+      "bytes": 368934007
+    },
+    "tiles/TCGA/TCGA-06-0169/dff1bdcd-0ffd-47dd-bb24-b11fa5c03360.h5": {
+      "sha256": "803364b6cf9d9bc01b6d46e527b76e5b57c343e3477d91d65f7d7e3a0732e4f3",
+      "bytes": 130570346
+    },
+    "tiles/TCGA/TCGA-06-0875/7f71f3dd-8f64-49c5-8611-603e4d99e84f.h5": {
+      "sha256": "42845283e1dd28774d351124dbce004096a67015cd5e816bfea6263ad5a199ac",
+      "bytes": 36102896
+    },
+    "tiles/TCGA/TCGA-06-0875/db33459f-238f-4f27-8d90-2994401acac9.h5": {
+      "sha256": "7d542151c525a37200944f41b18cf0b5982fffc6cb476609bfbc9b3fec207018",
+      "bytes": 98654712
+    },
+    "tiles/TCGA/TCGA-06-0877/5d5ad2bf-881b-4e5f-96cc-4f04736d87d7.h5": {
+      "sha256": "fabd121c154509bf59f66e0e855e895ee05753204504c4f398ea0578e2952597",
+      "bytes": 239170702
+    },
+    "tiles/TCGA/TCGA-06-0877/a3c2bd42-f652-45d2-b4be-2447ddd49af4.h5": {
+      "sha256": "501b0766ec84e561f7cc8a8e193fd98febed3541a989ec9e56a25396c945af65",
+      "bytes": 569606052
+    },
+    "tiles/TCGA/TCGA-06-0878/549309ea-4745-4106-82dc-042d861843c2.h5": {
+      "sha256": "52c0ad73d34a7a359ae42a2318d00ed56fe209c8f1b56706a8faec7f12067315",
+      "bytes": 233586305
+    },
+    "tiles/TCGA/TCGA-06-0878/5d52426b-04bd-4979-92c5-bbd8a7c1ab72.h5": {
+      "sha256": "06aef47e2faf55f270ed0b560230fec896979f2a2334773a6b826ccd128ce1eb",
+      "bytes": 545930020
+    },
+    "tiles/TCGA/TCGA-06-0881/1dbd6018-c079-4d99-95f6-aa9fb0213236.h5": {
+      "sha256": "f809f555643f6086967bcbf3627708aa138544adc3a3852d0551d665346f153d",
+      "bytes": 153206240
+    },
+    "tiles/TCGA/TCGA-06-0881/ffe8ced1-fcaf-4447-bfc9-1fa266337615.h5": {
+      "sha256": "ad4dc7d8fadab156cfd8688ede61ec97d82f3f9af3521bb0aae1492bf9f59b63",
+      "bytes": 129820318
+    },
+    "tiles/TCGA/TCGA-06-1087/3297db4d-7217-4c0b-8ebe-12579a62e2a0.h5": {
+      "sha256": "c0649d5e98fd091b06d9e0052d406e55214fd92a640761316d0f95f714d7e026",
+      "bytes": 174086627
+    },
+    "tiles/TCGA/TCGA-06-1087/dd43c813-8113-4adb-8a35-d30ef7530199.h5": {
+      "sha256": "88a189c9ca80a2ee9bddb5c1f05c5a6e4b5d0b4c8fef156a17fb06deafa6a77a",
+      "bytes": 67081067
+    },
+    "tiles/TCGA/TCGA-06-1801/7fa618f6-9d46-4210-81ca-29b4c73c8f94.h5": {
+      "sha256": "fda63c1e60dd0b74f8f60969b6746e4a7763c113e21f0a401dbc3f1ad24fbdfd",
+      "bytes": 189238290
+    },
+    "tiles/TCGA/TCGA-06-1801/fc4aaec3-1a72-430f-b753-c958e0f4dad8.h5": {
+      "sha256": "1887e10d6001c1d60ee5157cfac6382bb52dfdefb9d6dc93a8cb65636af63da4",
+      "bytes": 439365900
+    },
+    "tiles/TCGA/TCGA-12-0670/0d248c2a-20ea-4a47-85af-fcbc4dcd1d03.h5": {
+      "sha256": "1ba1b0c53f2a9283f6d78d6f4a758d80e1ac3d3acc80f6248f905529437906af",
+      "bytes": 601662892
+    },
+    "tiles/TCGA/TCGA-12-0670/6b38f83c-ff9a-48c2-9607-eee06a11782e.h5": {
+      "sha256": "8e82481c6c8de65a8bab59a29bed12c06a866628e0c9b6e9e7607b93f9e0f1c6",
+      "bytes": 496703297
+    },
+    "tiles/TCGA/TCGA-12-0670/e826d31a-01db-4489-afa4-95366385302b.h5": {
+      "sha256": "a182b84242c87b430447910a58e9d78363158ed75dd0c4a28d67ac2b20162e92",
+      "bytes": 564453292
+    },
+    "tiles/TCGA/TCGA-12-0670/eef485e3-f10f-46ed-ac8c-5d49d1e76b1d.h5": {
+      "sha256": "fab31263c5100986c5d5323ba5eeb0b4fb4f737c3bbd9953ac034d2f7cebcb8f",
+      "bytes": 594878292
+    },
+    "tiles/TCGA/TCGA-12-0819/01116270-bf0e-44c1-bd77-033592e2a3e4.h5": {
+      "sha256": "6148877c7d55925311f62c4791d0eeb4ef4cfebeaad91ccc5bdd717e0de4a119",
+      "bytes": 575190884
+    },
+    "tiles/TCGA/TCGA-12-0819/0148b9eb-68fe-4924-a4fb-b4508c21a1b4.h5": {
+      "sha256": "a2683476bd24beca64f8616cbd00e2977da978e786e5219b127afc9796ebca4b",
+      "bytes": 568513124
+    },
+    "tiles/TCGA/TCGA-12-0819/f520937e-b280-43dc-8c43-4f3a77aff298.h5": {
+      "sha256": "2f33e169f6b2cf775911e075454b4a632272435c28178463c1bbaa7582e8036e",
+      "bytes": 376902087
+    },
+    "tiles/TCGA/TCGA-12-0821/993a33ef-ba1d-49a5-937b-c118f0841576.h5": {
+      "sha256": "60f954eadae090b9029c029a1774ab80f4d256d91f945b7b8d4f07120a4552fc",
+      "bytes": 554642508
+    },
+    "tiles/TCGA/TCGA-12-0821/9ad4d0d2-a9a5-4b63-9479-16f3b1d949c3.h5": {
+      "sha256": "cef1ed6d3388a1d4d2ec4e49e20aca59ca71435df37d1c8055420feff2813c89",
+      "bytes": 559343476
+    },
+    "tiles/TCGA/TCGA-12-0821/a12ed831-9ee6-48cb-9f33-af55441ccb06.h5": {
+      "sha256": "a8cdfb5c1c668ee60ac0cf4b3ad2bcffdba065aec9b395da6f26172fd1bc38c7",
+      "bytes": 400640279
+    },
+    "tiles/TCGA/TCGA-12-0826/6f7e6872-7aef-4bc3-985a-63c3a1bab890.h5": {
+      "sha256": "21434815d7a08123bda48f5886b54bb2a20482fa443feb935424da1db321425a",
+      "bytes": 503993204
+    },
+    "tiles/TCGA/TCGA-12-0826/a6c5368e-55e9-4580-882e-2aac285c4652.h5": {
+      "sha256": "55cd087932beb8547db8c96e2cbbb70353707d1ac9924f1b649bdafa3b6df43a",
+      "bytes": 530683804
+    },
+    "tiles/TCGA/TCGA-12-0826/b98f7212-8354-4394-b36b-65354c1b3968.h5": {
+      "sha256": "ebf82296bfdaf92b2c6c73b89bb02a00860a1fe4b84aab242748eeb1fd0b995f",
+      "bytes": 536430860
+    },
+    "tiles/TCGA/TCGA-12-0829/8a03e05a-1bd9-4a80-a621-bda3305ea36a.h5": {
+      "sha256": "44f89196e511a71653af5f012fff42d267c3fd339da177a305d12b9d0dbed6e9",
+      "bytes": 570331564
+    },
+    "tiles/TCGA/TCGA-12-0829/d20e63a8-0277-4def-9ecb-1a263164a231.h5": {
+      "sha256": "9732e784941424a1fbf40fa3a3592f1adfec14bf8c3f6b94c9eb3281bc7e31bf",
+      "bytes": 582004980
+    },
+    "tiles/TCGA/TCGA-12-1088/83aa92a5-2e63-4a4d-9454-3bf5c36d2cd9.h5": {
+      "sha256": "e225737be6275a8c6c5ea300d77d997780b4f3b7ef1b9c3b0889ea0c67f07d41",
+      "bytes": 552686748
+    },
+    "tiles/TCGA/TCGA-12-1088/e275e21b-da9e-46fb-a1b7-4bd33363f3a6.h5": {
+      "sha256": "82dddb55391496effef704d7aa455da811e75f004dcc287188663aaf2fcd637e",
+      "bytes": 527554556
+    },
+    "tiles/TCGA/TCGA-12-1088/f38d63a6-936d-4b62-94f2-90d74b66971f.h5": {
+      "sha256": "fa72b383dc78159f5fd2493be2ad9b22626f5fe2c5a6be2dad72b60f76c4a476",
+      "bytes": 534360820
+    },
+    "tiles/TCGA/TCGA-12-1599/36ca2b22-43fb-4eb2-849b-f9d57de665b1.h5": {
+      "sha256": "a3ee395eb8441d73f1aa92500723c9d81c2bd5e3fdeb5b2154cc8fafae93ce6e",
+      "bytes": 360305081
+    },
+    "tiles/TCGA/TCGA-12-1599/cfc8bfdd-04a2-4a9c-9880-f5c56882f6b6.h5": {
+      "sha256": "e78eb724b6101d85d421a25126a8affc1ef3c8ee50e0a523a852aab2aa21367a",
+      "bytes": 577016796
+    },
+    "tiles/TCGA/TCGA-12-1599/ddfed642-cb73-47d5-9249-e14c234e8f2b.h5": {
+      "sha256": "7c95077a4313351737a6e5fb72cb975a14f210b56deea8c7d2985e1f389c76cc",
+      "bytes": 578086836
+    },
+    "tiles/TCGA/TCGA-12-1600/6e26d80f-7a13-4b88-803e-f4c2cff25430.h5": {
+      "sha256": "ae320de644aa1f5de7ca7deca62df407a02ca1b464cd66159490394b9467817a",
+      "bytes": 569114988
+    },
+    "tiles/TCGA/TCGA-12-1600/f731c5f4-03ff-405c-90cd-9584973915ca.h5": {
+      "sha256": "b16fd4f65809e310fa88bfed19348c3ac67c61d6ce152fb1e119288f7067c490",
+      "bytes": 573424852
+    },
+    "tiles/TCGA/TCGA-12-3644/12d0ebe2-91cd-4fa4-8e4f-cc41b1c24abc.h5": {
+      "sha256": "3dcee3c36d543427d54a05b1d2487d890c465691d443fed90e1c26283e96e89f",
+      "bytes": 573300004
+    },
+    "tiles/TCGA/TCGA-12-3644/b176158a-41b6-45df-9da2-4ea6f88d60a9.h5": {
+      "sha256": "2d00c599261cdf2d7293c38578de86d674cbdf6c5c3dc66c32450334b0643f2f",
+      "bytes": 541267452
+    },
+    "tiles/TCGA/TCGA-12-3648/53ce832d-55ef-4158-975d-74c139544309.h5": {
+      "sha256": "880583c7af5b5b00dc22991d6833d2d47dfc3a0d655966678199f1710c40aef0",
+      "bytes": 602122468
+    },
+    "tiles/TCGA/TCGA-12-3648/d2efd08a-0ebb-4fd7-9a02-2313c667cad7.h5": {
+      "sha256": "9966100d21f3af86bbae6e43cecf7fc595b8130b74f1e8438940f4cf54cc8821",
+      "bytes": 575487068
+    },
+    "tiles/TCGA/TCGA-12-3648/f1bc7020-1bd3-4d22-90ea-1ad32aea3442.h5": {
+      "sha256": "1e0ff31d5b739c367b2924191a1ce6fdfe5b331451a9b153881a2f379da57f70",
+      "bytes": 587610052
+    },
+    "tiles/TCGA/TCGA-12-3651/1c0c55d4-3b38-4bb9-a5c1-1bdcfb4fa907.h5": {
+      "sha256": "6246fba0b36d696b69648ab0ad5e7c772f0fd636d39168542b6d81599b784d1d",
+      "bytes": 570312420
+    },
+    "tiles/TCGA/TCGA-12-3651/48297373-855b-4d48-abc9-4ee39655e194.h5": {
+      "sha256": "4e47665712dbd103e6006fd716e60149f1bb7401829a322d02ed6c2957db0280",
+      "bytes": 570227196
+    },
+    "tiles/TCGA/TCGA-12-3651/7ff6ca6f-ad57-44db-b393-12c5308275cc.h5": {
+      "sha256": "c07f737e470268666c7b624a2713e5b4f83b6227cbfebc97dd5d5f7783472316",
+      "bytes": 564087140
+    },
+    "tiles/TCGA/TCGA-12-3651/de523ab1-03b3-47a8-b214-03a5305a5ba0.h5": {
+      "sha256": "96a507ab7e0884546e464395492832e28a89c0c8fc1f924a7f5742a37fa50fac",
+      "bytes": 575293372
+    },
+    "tiles/TCGA/TCGA-12-3652/2f67e999-7308-42b8-b441-d818dc041ea4.h5": {
+      "sha256": "9c29c1b5c41245aec44138610392513bb4d19cbe85be70dadd06bc343898d53d",
+      "bytes": 593684772
+    },
+    "tiles/TCGA/TCGA-12-3652/35debd30-b64f-44e1-8a83-f83254caf38d.h5": {
+      "sha256": "491025386a4fb14f470fcbe257d5b2141276b7d44c627046c910af246645f230",
+      "bytes": 573349876
+    },
+    "tiles/TCGA/TCGA-12-3652/680da9f5-3b99-4790-86a2-33b6e6e5b561.h5": {
+      "sha256": "ebb629930e68c5701067d02128645ead37962e57a749f64f8c56a8fb46970055",
+      "bytes": 596467236
+    },
+    "tiles/TCGA/TCGA-12-3652/e6a1993c-4af0-4425-954c-6671979f9c74.h5": {
+      "sha256": "a5be2b339eeade1168d1019e68e099452dfd5732fb2ea42ff7d3f55562447bc3",
+      "bytes": 565154932
+    },
+    "tiles/TCGA/TCGA-14-0787/95005b7b-618f-4caa-acc1-20295eb24fe1.h5": {
+      "sha256": "d76891d3cec7cce0a87c510bac0a85b6c9b2a556dddd1695c8de075e600754df",
+      "bytes": 65083481
+    },
+    "tiles/TCGA/TCGA-14-0787/f6a5b145-688d-44d5-951d-72ec0242156b.h5": {
+      "sha256": "ce1452afdccfc8f50fa93f0e72b1442d8a8b7f25bd8b83b35da961700ad3f531",
+      "bytes": 590012332
+    },
+    "tiles/TCGA/TCGA-14-0817/4aef30c7-03a4-4592-9b10-271c795b0ca8.h5": {
+      "sha256": "0edb0a688c2fb73dff283ada1cfa23c4842a77fca1da1f8e4511840d325e71eb",
+      "bytes": 453804916
+    },
+    "tiles/TCGA/TCGA-14-0817/6da7d7f6-fa49-4e1e-a502-cadca633dd96.h5": {
+      "sha256": "67959c30fd2ee850c2611723457f82e6e50b9d49b14b1787875cb5dde8958caa",
+      "bytes": 593897492
+    },
+    "tiles/TCGA/TCGA-14-0817/f6e75081-256c-489e-a050-f9574b6ce4d3.h5": {
+      "sha256": "41a71db82ac1fbbb194e1ae7e58007eded7a5c68eb13acf266264d71791b2c2e",
+      "bytes": 619104740
+    },
+    "tiles/TCGA/TCGA-14-1037/54f5756d-fcaf-4658-bde7-8ad0431573f9.h5": {
+      "sha256": "76ad86575a4f2556adf60bb2bc3ebea9cd20d3c48ac3245877deb6d44dc5a970",
+      "bytes": 511034340
+    },
+    "tiles/TCGA/TCGA-14-1037/c990b580-95ca-4afe-803c-c038ed9cfcbc.h5": {
+      "sha256": "4210e33817fa74539c45a52e854cdcf71ede9141d076493d75291fb28bc4e8ea",
+      "bytes": 537422876
+    },
+    "tiles/TCGA/TCGA-14-1396/0af62107-10ae-4fb8-99f8-85a54aa69408.h5": {
+      "sha256": "e3d9cb8746787ad9f4b75ec6ea151a3cd7be76a735e8ee51da913be9afc5496b",
+      "bytes": 526780092
+    },
+    "tiles/TCGA/TCGA-14-1794/0fe3df70-bb79-4701-9554-75ccbbfc86b5.h5": {
+      "sha256": "c35dd5be3ef0fa6de2f3eca005d6d329199f8e1b125249fc780b01a88f7b3d6b",
+      "bytes": 205600589
+    },
+    "tiles/TCGA/TCGA-14-1794/7464dc1d-4905-44f2-89cf-3069579195b4.h5": {
+      "sha256": "389a3ad2731fea962e5dbb9fe22af39bd314fe236b0d08d4e1d88a25cc98e552",
+      "bytes": 431945015
+    },
+    "tiles/TCGA/TCGA-14-1795/33399499-6f27-49c6-8f61-fbc56280153a.h5": {
+      "sha256": "5bfe3b500e7f35b8d8a7c53fc0276acf17acc6731e2e9997cec60a0fb4798143",
+      "bytes": 559279332
+    },
+    "tiles/TCGA/TCGA-14-1795/a5107ad6-6f85-4d5a-a177-ea3410f4766b.h5": {
+      "sha256": "9db1665dda3aff6a46b32e083e456eeb66e540497fbadbc73597267049f68a6c",
+      "bytes": 536531388
+    },
+    "tiles/TCGA/TCGA-14-1795/c164c1c3-46c6-4a39-86a4-7d4fccf59ac9.h5": {
+      "sha256": "e4c5c79e3e253badbc3063fd21c552e13030246ba075b66ec9a575e1b16098d7",
+      "bytes": 561965108
+    },
+    "tiles/TCGA/TCGA-14-1795/c2f9b024-ebbf-435c-aaca-596f17c5516c.h5": {
+      "sha256": "15eed5d516f7b0e64fc44e43888a4dfb48d823a9a86e1eebca9cdcf58a1f2218",
+      "bytes": 540285780
+    },
+    "tiles/TCGA/TCGA-14-1795/c752b7fd-1f57-457e-86ed-16c2d36b38a3.h5": {
+      "sha256": "5234f9b54b4c25e72d19b94fee9e1319767931dd0eb545b17a51f437c139c583",
+      "bytes": 543804532
+    },
+    "tiles/TCGA/TCGA-14-1795/c82ea72a-a309-4542-8bd0-56fe3f805f55.h5": {
+      "sha256": "b1624667e79123292c27c825eab10d3c1ea4b61b04ea0a219398ccdceb00d6ab",
+      "bytes": 552941708
+    },
+    "tiles/TCGA/TCGA-14-1795/db76f842-7d3c-4b40-ae16-50c6c312b7ca.h5": {
+      "sha256": "fc8d7d1aeb24944e79744980c6c7e770c53dd82bf7377b4a24ca88fd5a38381f",
+      "bytes": 543350180
+    },
+    "tiles/TCGA/TCGA-14-1827/420caeae-1f95-4b87-91b7-805c5a4344b9.h5": {
+      "sha256": "fffbce7ac6b3c14eb41fbb2524cd3e5142ae0bb062a5d7a4e7f03ab1d8c7e2e4",
+      "bytes": 537934508
+    },
+    "tiles/TCGA/TCGA-14-1827/dbbba1b5-c2c3-4294-8488-5e5fe4babc72.h5": {
+      "sha256": "929429d8ca3229a1cb8b6e4389d7b2ebed6e4bc8cd9bdbdf4489b86bb3f63c92",
+      "bytes": 526382836
+    },
+    "tiles/TCGA/TCGA-14-1829/0421bfab-a8e2-4560-b090-3281c25b80ca.h5": {
+      "sha256": "bc5de59c2fed340fadb7153d1d9f135b369308edc0943be88500a4405a060304",
+      "bytes": 553467484
+    },
+    "tiles/TCGA/TCGA-14-1829/15747aa7-bef8-4d18-baa9-a396661df3f6.h5": {
+      "sha256": "761c95d8d60ea40d200abf2a60e79f66d3694789654c3d4e0dcb2d53972b9541",
+      "bytes": 530754340
+    },
+    "tiles/TCGA/TCGA-14-1829/61db29b5-2d31-4f1d-9a67-64a049a2bb0b.h5": {
+      "sha256": "052e67e29769488cca7090ec96f184eb9a2b512da9e702b1104b0b016331cfac",
+      "bytes": 302321829
+    },
+    "tiles/TCGA/TCGA-14-1829/751736b2-a612-45ba-8270-4d460755966d.h5": {
+      "sha256": "a81688e4e9a275bbf89ff873182c190e055b549d51236ddb0b841fe3d83624da",
+      "bytes": 532969836
+    },
+    "tiles/TCGA/TCGA-14-1829/8c76b289-998c-4113-9e98-2e657151451e.h5": {
+      "sha256": "a219c3fc17e9a43ac34f7d817d1fca9c143874e6f4dbbb70aaf21235ddea2a89",
+      "bytes": 528201980
+    },
+    "tiles/TCGA/TCGA-14-1829/b7f5df0f-caa4-45a2-9636-badcd1c89316.h5": {
+      "sha256": "1328966915e749c427ba75e0f82c5e6a891d7a4bfda31550f74fa96f9e83084d",
+      "bytes": 101075211
+    },
+    "tiles/TCGA/TCGA-14-1829/d6f5da34-e946-4421-9252-7ca2a01f6136.h5": {
+      "sha256": "2481e4bfd5fb8bcd6bdb9d0b7fce8a12833de670902cd82be2fbb9f7d65ec5a3",
+      "bytes": 533817372
+    },
+    "tiles/TCGA/TCGA-14-1829/e0efbc39-8404-43e0-b574-8e72133a328e.h5": {
+      "sha256": "bdd9489d22ff147b8f4712260649c5a1ec807d3877ce230a2922febfc26fae51",
+      "bytes": 535684348
+    },
+    "tiles/TCGA/TCGA-15-1446/1dd101f4-9ed3-4209-8e96-723952137f43.h5": {
+      "sha256": "32e93a8d8c683e84b7f95a48a28b3260239befdc30c7225e34b49342aebf9621",
+      "bytes": 531448564
+    },
+    "tiles/TCGA/TCGA-15-1446/f39dcab7-05f2-4ac1-b102-bc5bf7aa6360.h5": {
+      "sha256": "d0b6afbddbb8e80e971522e233c21700fba3de7b195d9fc390b30803091046be",
+      "bytes": 625357436
+    },
+    "tiles/TCGA/TCGA-19-1387/89512c3f-ecdc-4594-bc27-3fa040401428.h5": {
+      "sha256": "50ca7aba0b9223a5f787ba3cee3b447edc3751eb08e7cb66c1139e9886e9de7c",
+      "bytes": 617289948
+    },
+    "tiles/TCGA/TCGA-19-1390/0243c8bf-709e-45ce-9c95-5c092364a963.h5": {
+      "sha256": "19808e8d585de0163f1cce6ef618c598d9baf9e12247758dd1013478b9a006cd",
+      "bytes": 68175256
+    },
+    "tiles/TCGA/TCGA-19-1787/846087b8-f70c-4970-a1b7-24d403229801.h5": {
+      "sha256": "cd65452b17a6bea15e15a8055bc5ef14bdc6fb3c3ab2560069dfc6a33687d709",
+      "bytes": 142003464
+    },
+    "tiles/TCGA/TCGA-19-1789/ea022bca-a2ee-4200-8769-abc8eed320e7.h5": {
+      "sha256": "74afca9db4ec0d5d12ffa811b21fd21186a4cf7a375de8938ff7abc72a0bbde9",
+      "bytes": 146182016
+    },
+    "tiles/TCGA/TCGA-19-1791/1a9b1016-d6e7-4276-94d8-9289cbc8ca30.h5": {
+      "sha256": "bdba2a1af7b8d00509c26bec3223d4e52ea7b130e4c590cd50dbdd51a48f1cf9",
+      "bytes": 124821224
+    },
+    "tiles/TCGA/TCGA-19-2624/6aaba619-a4cd-42f0-b6ff-5e8f8ce6a503.h5": {
+      "sha256": "81a0a70162f95f34226437107151c541b0eebe32a704b64994cae4d324fa0ff1",
+      "bytes": 183814843
+    },
+    "tiles/TCGA/TCGA-19-2625/41cf07b3-fcbd-45c4-9d9c-a0ed6beafbfc.h5": {
+      "sha256": "049e9a580581e837ec1f3d55f542fec40e4aedba3275603ee18a2b8767026e46",
+      "bytes": 541291444
+    },
+    "tiles/TCGA/TCGA-19-4068/4032e610-621f-4469-aeac-722e31dde38b.h5": {
+      "sha256": "76013ac8aad409deff545615e3b2a2c2af121c410280e92863c6281db0aa0e3d",
+      "bytes": 313835792
+    },
+    "tiles/TCGA/TCGA-19-5959/fe1a47a5-e539-4e60-b28f-ba613eed66a3.h5": {
+      "sha256": "c4d534dcb6a97caa9d00f1092bf087b25ac08baede3e47a59dcf3fff22f1ae5d",
+      "bytes": 585431132
+    },
+    "tiles/TCGA/TCGA-26-1439/c4ff57be-ca96-40b2-b4da-1d26b365f148.h5": {
+      "sha256": "c75d78b5807a7dd814d042cf440d66c1d1cb369e4adca43a70389c03f55ea02b",
+      "bytes": 610557820
+    },
+    "tiles/TCGA/TCGA-26-1799/468b406f-f95e-4952-912e-a2e8b240f92d.h5": {
+      "sha256": "427c05d15b23605e56757ec2196eecebada9405839700026c303538c1988e74f",
+      "bytes": 627291612
+    },
+    "tiles/TCGA/TCGA-27-1830/1f64c6ee-d2b4-4b2d-aaec-3f562ac9373c.h5": {
+      "sha256": "4e88952fc4010008f5cca21b963bfc698e6bfbe834fcf67b4649de287ad1b109",
+      "bytes": 593277396
+    },
+    "tiles/TCGA/TCGA-27-1830/5571b366-d719-4d63-be7b-921c61392804.h5": {
+      "sha256": "d94609f3241dad4383a145245b42ce0d7c809acb0bad2236986a2bdd8a66bd10",
+      "bytes": 570624532
+    },
+    "tiles/TCGA/TCGA-27-1830/93696044-0666-4129-a1bf-afc211fe4dd5.h5": {
+      "sha256": "127835ed67c656779e2f37c129efff147ac7ef5a2f3f579b5c4ebf83b44b6fb8",
+      "bytes": 563260468
+    },
+    "tiles/TCGA/TCGA-27-1831/18d38a2e-626d-4d10-b8fa-2cf2ebd9b9fa.h5": {
+      "sha256": "0dbe3cd70010d8f876bb3647b4a3c84687ed2860fd9829ae32c42d475c38abf4",
+      "bytes": 393178474
+    },
+    "tiles/TCGA/TCGA-27-1831/5025d05a-f236-4a88-8354-90e0723f3ac2.h5": {
+      "sha256": "21583579528edc0d5e9a72cffe2bd9cc672ae2d9382a03f40e6ffe230277d92d",
+      "bytes": 549767580
+    },
+    "tiles/TCGA/TCGA-27-1831/7cb93134-9908-4216-a2dd-946549459fcf.h5": {
+      "sha256": "a9971559079f7f6bbe6b5100832393b649174e54cc27594dcbd5eacf4bb3cd78",
+      "bytes": 572374252
+    },
+    "tiles/TCGA/TCGA-27-1831/cfe507fd-a0cf-4346-8237-05376e3fd404.h5": {
+      "sha256": "e2488a488b0299d65ed2347ad2b8b6d759e57f721c029048f0eb4703b23fa290",
+      "bytes": 577435180
+    },
+    "tiles/TCGA/TCGA-27-1834/5b161e68-e5ee-4039-8097-3f813fffedaf.h5": {
+      "sha256": "69a94cb58c094529e2283dcf77c4ed0cbc57f76da7f962973dbc3a2adae1e9cb",
+      "bytes": 586260964
+    },
+    "tiles/TCGA/TCGA-27-1834/909607ef-feb5-4cbe-b94e-e1eaa7339e76.h5": {
+      "sha256": "66bd20f1226fcaad44f10ec2896a6e38fe1fd47c590558f3c519e4012d82b74c",
+      "bytes": 589204340
+    },
+    "tiles/TCGA/TCGA-27-1835/0006ae80-5774-4199-bbd0-3c120ed547e6.h5": {
+      "sha256": "b1a606ad96a0f348de2a8c0da2ecdbbd3ac9f9270aa49fb63cf02919813b0f6b",
+      "bytes": 548328092
+    },
+    "tiles/TCGA/TCGA-27-1835/61139c78-9413-456f-bb8a-d50f9a2649a5.h5": {
+      "sha256": "5ebe8511da677cad1989ca174af20b4efb0226ae5a357f99e5114f18099c20bd",
+      "bytes": 570765532
+    },
+    "tiles/TCGA/TCGA-27-1836/049624f0-9245-4c6c-acd3-9fc37ee9603b.h5": {
+      "sha256": "f41635c29f995a988d4ef3d4d2572dda6062b8a4c003565fb352daf82571d18d",
+      "bytes": 560509124
+    },
+    "tiles/TCGA/TCGA-27-1836/2b735fe8-e3d5-4024-ab66-735bd55abc23.h5": {
+      "sha256": "6d4da21e1cf1a7dbfa3417e0e253ac60b5f42efc9d408d65d69aa1f3d5c2ca53",
+      "bytes": 597263428
+    },
+    "tiles/TCGA/TCGA-27-1836/71e15437-c246-4f50-aecc-2ac3767414a6.h5": {
+      "sha256": "a6ff575f3b748ab37ff734481394002c3a1226cd526697d5b6fbb84da7733aca",
+      "bytes": 592306828
+    },
+    "tiles/TCGA/TCGA-27-1836/e885cb5b-71c5-47cc-8ea3-3a1721f64214.h5": {
+      "sha256": "ba0d85a2198a2e4c3158524592a1fdf33df783aeccb898f26c214c3fc28bf41b",
+      "bytes": 566519460
+    },
+    "tiles/TCGA/TCGA-27-1838/9dea7fc1-87f8-4772-9f51-3e81968e0244.h5": {
+      "sha256": "11c8561ed603b5de3ae133e5e630a6263356788544fa9849d16d3b32329bb785",
+      "bytes": 602247740
+    },
+    "tiles/TCGA/TCGA-27-2518/9f472b15-2092-469d-b47c-38098fac33b7.h5": {
+      "sha256": "9b925e7fbf0226d470df154a3022c791c72736cc8fe0e0de5aa824ae9ff9e145",
+      "bytes": 655329916
+    },
+    "tiles/TCGA/TCGA-27-2526/cfd6b071-7e20-4880-b0e3-606eb58f1da4.h5": {
+      "sha256": "c46822098ed25590a7aaf567afed006611117913ec12fd7d04cc1af81e8442ee",
+      "bytes": 683394564
+    },
+    "tiles/TCGA/TCGA-27-2528/aec43cb1-6d65-4f83-8807-c8eed56e59a8.h5": {
+      "sha256": "b8336519cacff91cf8932addd62d2762a81f86cf6326c3508c895c96b1dbffd1",
+      "bytes": 642198044
+    },
+    "tiles/TCGA/TCGA-28-1746/a4f70d6d-42af-470c-8731-3657f1eef9c1.h5": {
+      "sha256": "9743fadb2980e38485105bf5d28a19b97ffc930bb3d2a79a6a5bfad349f896ed",
+      "bytes": 393866163
+    },
+    "tiles/TCGA/TCGA-28-1749/b943c68d-3294-48c1-bee6-b5e9b61fbc3b.h5": {
+      "sha256": "2ed94db210b15fda6142b457d032576d8022eb8e18d8d92bcd3f3ea69a050d53",
+      "bytes": 92565338
+    },
+    "tiles/TCGA/TCGA-28-1750/b2b0e736-5f91-4345-8cfd-45dbeed36d87.h5": {
+      "sha256": "ead52af5936b1dd9ccec8a8a3f64012daccbeec0de320341659a6843e6c96dcf",
+      "bytes": 559633908
+    },
+    "tiles/TCGA/TCGA-28-1752/a4e30095-3281-42ab-9f0a-a6db91dc25a7.h5": {
+      "sha256": "a23281977d2296f0aa94f6da40306023713bd4b74c94c69fc8e9c736243be70e",
+      "bytes": 559840140
+    },
+    "tiles/TCGA/TCGA-28-1755/030e2538-4610-4ba8-8af9-521c182d16d1.h5": {
+      "sha256": "5ea405ff01c0a43c28187b7d6841a2077762ee7835219efa7cb208196b850950",
+      "bytes": 452314434
+    },
+    "tiles/TCGA/TCGA-28-1757/e3b92931-6852-453a-9a18-1b77a5947d52.h5": {
+      "sha256": "bdbe977fcd359d4ef06099846d227ad55c3bcdb3d68b1120061c3e71b208311d",
+      "bytes": 583946908
+    },
+    "tiles/TCGA/TCGA-41-3393/bd73b564-5ae1-4964-9e1b-697ea0d95a86.h5": {
+      "sha256": "bfcf48cd50acad836a5506202be85b6e8d13278399dad3ae0f29246a7ce0d613",
+      "bytes": 391994442
+    },
+    "tiles/TCGA/TCGA-41-3915/09f7d4a4-19ab-4017-92eb-170829e9b645.h5": {
+      "sha256": "cd771863fd8b8afc42629c8fb7717375a46316473f41d47be883ed626de80127",
+      "bytes": 628238820
+    },
+    "tiles/TCGA/TCGA-87-5896/7caf95b9-a206-47df-86e9-b65c44b5fe61.h5": {
+      "sha256": "0e2fc3dba3105bbfeb8006cfb9cefcf76289271ae04440610daadacb52042232",
+      "bytes": 103995571
+    }
+  }
+}

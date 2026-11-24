@@ -1,0 +1,27 @@
+{
+  "held_out_fold": 0,
+  "batch_mode": true,
+  "preview_only": true,
+  "manifest_sha256": "fdedf6da40b1695f14faeac68d65e16cbbdb3804c1795c8546fbbadf72126c02",
+  "source_rows_sha256": "a35f55a1f56b5f3c6eab47b4bb843c0c48fc1b196e4e0da98e721157aae54a0e",
+  "package_manifest_sha256": "6ba3ab0200931c9e18a2b5e34a7af6fbaa55fe2adfaca0d3690337df39dad6d9",
+  "source_qc_evidence": "complete_verified_qc_v5_package",
+  "unavailable_source_scores": "Whole-slide mask fraction and original score CSVs absent; no values invented",
+  "inputs_sha256": {
+    "folds": "1b4a8e95ac94ede497feb9ed875674d0e27454dd29f5fbbef24ffa8f7333acc7",
+    "labels": "e2f038af40cc5aed430dc0cfda9a54d365c7f5fc5ac05fa27ccff063ddedb187",
+    "tiling": "0695c646d30a161c32d6cf6a13a163b0c4e7acddea8bb78b4d477232f8adc274",
+    "modeling": "e9d8037385ab6475f108f8323853e85e0938f33125c876ab090d359317a21a61"
+  },
+  "loader_sha256": "89323e003de9438d602d7a5111799cb0466a16b735935dc409329b615ecb851d",
+  "common_sha256": "e93fd99576118dc666c90d407ddcb9468c6b9255eb96f7491e91c18c92779b86",
+  "repo_commit": "660dc42c3693a892099a8f49f1713b9eba3ab150",
+  "preparation_runtime": {
+    "python": "3.12.3 (main, Feb  4 2025, 14:48:35) [GCC 13.3.0]",
+    "numpy": "2.2.6",
+    "pandas": "3.0.2",
+    "pillow": "12.1.1"
+  },
+  "modeling_folder": "/workspace/persist/crivas4-microscopy/packages/B_qc-v5",
+  "prepared_at": "2026-11-24T06:24:26.402172+00:00"
+}
