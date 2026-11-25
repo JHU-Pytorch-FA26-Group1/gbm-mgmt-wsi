@@ -1,0 +1,33 @@
+{
+  "anatomical_accuracy_validated": false,
+  "asset_id": 255752676,
+  "author_published_checksum": false,
+  "bytes": 26010685,
+  "checkpoint": "model_v3.onnx",
+  "discarded_candidate": {
+    "issues": [
+      "https://github.com/amin20/GBM_WSSM/issues/9",
+      "https://github.com/amin20/GBM_WSSM/issues/11"
+    ],
+    "name": "GBM_WSSM",
+    "weight_link_http_status": 404
+  },
+  "observed_sha256": "d4aef23368e1cfb3d444ecdcefc8d67376e617b19c775c4ed71fe249abfee845",
+  "release": "v1.0.0-MIE_Release",
+  "release_published_at": "2025-05-18T14:35:34Z",
+  "source_commit": "3c3818233c3c8bcf572c1f8ad6e4181d2fa46fee",
+  "technical_cpu_inference_passed": true,
+  "training_patient_overlap_verified": false,
+  "upstream_source_sha256": {
+    "monai_LICENSE.md": "6fef4087af5ac7c0c33ddb49206d22e54e45621e1d1469fb5648bb6e3d9f74b9",
+    "monai_requirements.txt": "c106504a36353d4bb9f99ffe9755eaf3efd92933980bb8d565d17924e12af297",
+    "monai_src_helper_functions_machine_learning.py": "fdf07b6512163b4efa70b81c8928f4d31a6299e08e781121b963b77174c30501",
+    "monai_src_helper_functions_preprocessing.py": "b3c7f7800da1cb2996494a4dac996027da76bde9829e9b89fe5bd1c687f86c19",
+    "monai_src_onnx_export.py": "1a76a5a762b62d2a29f1fca7fc740034609d244fe25c4f9209351db6a6941890",
+    "monai_src_testing.py": "257d4c930a60b533e368ce61e01f773a48b4113af21e586b4cf197630898f058",
+    "monai_src_training.py": "dcfae56506ae7d7d1bdbf7b568f9244f2e37d67effa7a404b1f6520f4d26362c"
+  },
+  "upstream_stain_reference_available": false,
+  "upstream_training_mpp_verified": false,
+  "url": "https://github.com/hnu-digihealth/monai_gbm_segmentation/releases/download/v1.0.0-MIE_Release/model_v3.onnx"
+}

@@ -1,0 +1,15 @@
+test_a_missing_neighbor_cannot_be_filled (test_roi_preview.Preview.test_a_missing_neighbor_cannot_be_filled) ... ok
+test_adjacent_pixels_reconstruct_exactly_without_resizing (test_roi_preview.Preview.test_adjacent_pixels_reconstruct_exactly_without_resizing) ... ok
+test_blinded_preview_is_review_only_and_preserves_existing_output (test_roi_preview.Preview.test_blinded_preview_is_review_only_and_preserves_existing_output) ... Predicted region-001: AT, half A
+Predicted region-002: BT, half B
+ok
+test_corrupt_payload_and_wrong_mpp_are_refused (test_roi_preview.Preview.test_corrupt_payload_and_wrong_mpp_are_refused) ... ok
+test_duplicate_coordinates_and_held_out_rows_are_refused (test_roi_preview.Preview.test_duplicate_coordinates_and_held_out_rows_are_refused) ... ok
+test_metadata_change_and_wrong_checkpoint_are_refused (test_roi_preview.Preview.test_metadata_change_and_wrong_checkpoint_are_refused) ... ok
+test_model_coordinates_and_logits_map_back_to_original (test_roi_preview.Preview.test_model_coordinates_and_logits_map_back_to_original) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 2.182s
+
+OK
+Exploratory review: /tmp/tmpxo30dwk1/preview/review.html

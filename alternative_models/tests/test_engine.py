@@ -23,7 +23,15 @@ REPO = Path(__file__).resolve().parents[2]
 def tiny(backbone, seed, pretrained):
     del backbone, pretrained
     torch.manual_seed(seed)
-    return BagModel(nn.Sequential(nn.Flatten(), nn.Linear(12, 4)), 4,
+    class TinyEncoder(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.stem = nn.Sequential(nn.Flatten(), nn.Linear(12, 4))
+            self.stages = nn.ModuleList([nn.Linear(4, 4)])
+            self.head = nn.Identity()
+        def forward(self, images):
+            return self.head(self.stages[-1](self.stem(images)))
+    return BagModel(TinyEncoder(), 4,
                     {"attention_hidden": 3, "attention_dropout": 0.0}), {}
 
 
@@ -66,7 +74,7 @@ class Engine(unittest.TestCase):
         self.cache = self.root/"cache"
         fake_loader = SimpleNamespace(TileReader=lambda _: SimpleNamespace(close=lambda: None),
             fit_fold_normalizer=lambda *a: (None, {"stain_matrix_target": [[1,0,0],[0,1,0]], "maxC_target": [[1,1]]}))
-        args = SimpleNamespace(plan=self.plan_path, backbone="swin_v2_t", out=self.cache,
+        args = SimpleNamespace(plan=self.plan_path, backbone="convnext_v2_t", out=self.cache,
                                reference_patch_id="T1-0", device="cpu", chunk=4)
         with patch.dict("sys.modules", {"loader": fake_loader}), patch.object(engine, "build", tiny), patch.object(engine, "Pixels", FakePixels):
             engine.cache(args)
@@ -97,7 +105,7 @@ class Engine(unittest.TestCase):
         self.assertTrue(all(torch.equal(initial[k], frozen[k]) for k in encoder))
         self.assertTrue(any(not torch.equal(frozen[k], finetuned[k]) for k in encoder))
         from alternative_models.prepare import read_csv
-        audit = read_csv(self.args.out/"bag_audit.csv")
+        audit = read_csv(self.args.out/"chunk_audit.csv")
         for patient, rows in self.plan["pools"]["resize"].items():
             ids = [tile for row in audit if row["patient_id"] == patient for tile in json.loads(row["tile_ids"])]
             self.assertCountEqual(ids, [r["tile_id"] for r in rows])
@@ -155,6 +163,31 @@ class Engine(unittest.TestCase):
         selected = torch.load(self.args.out/"finetune_best.pt", weights_only=True)
         self.assertTrue(all(torch.equal(value, snapshots[2][key]) for key, value in selected.items()))
         self.assertTrue(all(torch.equal(value, snapshots[4][key]) for key, value in selected.items()))
+
+    def test_worse_finetuning_retains_frozen_checkpoint_and_smoke_is_not_a_result(self):
+        self.args.smoke = True
+        losses = iter([.3, .8, .3])
+        def scripted(*args, **kwargs):
+            return next(losses), .5, [dict(patient_id="V1", label=1, logit=0, score=.5, fold=0),
+                                     dict(patient_id="V2", label=0, logit=0, score=.5, fold=0)]
+        with patch.object(engine, "predict", scripted):
+            self.train()
+        record = json.loads((self.args.out/"run_record.json").read_text())
+        self.assertTrue(record["complete"])
+        self.assertFalse(record["valid_for_results"])
+        self.assertEqual(record["selected_stage"], "frozen")
+        selected = torch.load(self.args.out/"selected_best.pt", weights_only=True)
+        frozen = torch.load(self.args.out/"frozen_best.pt", weights_only=True)
+        self.assertTrue(all(torch.equal(value, frozen[key]) for key, value in selected.items()))
+        metrics = json.loads((self.args.out/"patient_metrics.json").read_text())
+        self.assertEqual(metrics["confusion_matrix"], [[0,1],[0,1]])
+
+    def test_budget_above_200_is_refused_before_creating_run(self):
+        self.args.frozen_cycles = 20
+        self.args.finetune_cycles = 181
+        with self.assertRaisesRegex(ValueError, "200"):
+            self.train()
+        self.assertFalse(self.args.out.exists())
 
 
 if __name__ == "__main__":

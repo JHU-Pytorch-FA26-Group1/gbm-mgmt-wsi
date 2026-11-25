@@ -1,0 +1,43 @@
+{
+  "checkpoint_sha256": "d4aef23368e1cfb3d444ecdcefc8d67376e617b19c775c4ed71fe249abfee845",
+  "checks": [
+    {
+      "input": "black",
+      "logit_max": -0.013321168720722198,
+      "logit_min": -6.602825164794922,
+      "seconds": 1.083740798000008,
+      "shape": [
+        1,
+        1,
+        1024,
+        1024
+      ]
+    },
+    {
+      "input": "white",
+      "logit_max": -1.6205835342407227,
+      "logit_min": -31.14267921447754,
+      "seconds": 0.8898140359999616,
+      "shape": [
+        1,
+        1,
+        1024,
+        1024
+      ]
+    }
+  ],
+  "complete": true,
+  "cpu_threads": 2,
+  "model_url": "https://github.com/hnu-digihealth/monai_gbm_segmentation/releases/download/v1.0.0-MIE_Release/model_v3.onnx",
+  "numpy": "1.26.4",
+  "onnx": "1.17.0",
+  "onnxruntime": "1.22.0",
+  "phase": "technical-inference-only",
+  "production_filter_enabled": false,
+  "provider": [
+    "CPUExecutionProvider"
+  ],
+  "python": "3.12.14",
+  "upstream_commit": "3c3818233c3c8bcf572c1f8ad6e4181d2fa46fee",
+  "valid_for_tumor_accuracy": false
+}

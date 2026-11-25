@@ -1,4 +1,4 @@
-"""Frozen-embedding attention stage, then patient-normalized bag fine-tuning.
+"""Frozen features, then chunked whole-patient fine-tuning.
 
 FP32, Adam, no scheduler, patient-level weighted BCE; rates/cycle budgets are explicit CLI inputs.
 Current owner backbone/pooling implementations are imported read-only and their hashes recorded.
@@ -15,6 +15,8 @@ from pathlib import Path
 
 from alternative_models.prepare import sha, write_json
 from alternative_models.sampling import coverage_bags, rng
+from alternative_models.whole_patient import backward_patient, finetune_parameters, Plateau
+from alternative_models.patient_metrics import summarize
 
 
 def source_hashes(repo):
@@ -51,6 +53,9 @@ def current_plan(path):
         raise ValueError("Plan belongs to a different checkout; run from its original reviewed code")
     if plan["protocol"] != "alternative-attention-v1":
         raise ValueError("Unknown plan protocol")
+    for filename, expected in plan.get("package_evidence", {}).items():
+        if sha(filename) != expected:
+            raise ValueError(f"Combined package input changed: {filename}")
     for path, expected in [(Path(plan["package"])/"modeling_patches.csv", plan["modeling_sha256"]),
                            (repo/"manifests/patient_folds.csv", plan["folds_sha256"]),
                            (repo/"manifests/patient_labels.csv", plan["labels_sha256"])]:
@@ -246,32 +251,50 @@ def train(args):
     plan = current_plan(args.plan)
     if args.arm not in plan["pools"] or args.out.exists():
         raise ValueError("Unknown arm or output already exists")
-    if (not all(math.isfinite(v) and v > 0 for v in (args.frozen_lr, args.finetune_lr))
+    args.encoder_lr = getattr(args, "encoder_lr", args.finetune_lr / 10)
+    args.min_delta = getattr(args, "min_delta", .0001)
+    args.smoke = getattr(args, "smoke", False) or plan.get("smoke_only", False)
+    if (not all(math.isfinite(v) and v > 0 for v in (args.frozen_lr, args.finetune_lr, args.encoder_lr))
             or min(args.frozen_cycles, args.finetune_cycles, args.patience, args.bag_size, args.chunk) < 1):
         raise ValueError("Explicit positive rates, cycle counts, patience and bag size required")
+    if args.frozen_cycles + args.finetune_cycles > 200:
+        raise ValueError("The combined frozen/fine-tuning budget must not exceed 200 epochs")
+    if not math.isfinite(args.min_delta) or args.min_delta < 0:
+        raise ValueError("Finite nonnegative min_delta required")
     features = Features(args.cache, args.plan, plan)
     model, _ = build(features.metadata["backbone"], plan["seed"], pretrained=False)
     model.load_state_dict(torch.load(args.cache/"initial_model.pt", map_location="cpu", weights_only=True))
     model.to(args.device)
     args.out.mkdir(parents=True, exist_ok=False)
-    facts = dict(protocol="alternative-training-v1", complete=False, valid_for_results=False,
+    facts = dict(protocol="alternative-whole-patient-v2", complete=False, valid_for_results=False,
                  settings={k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
                  plan_sha256=sha(args.plan), cache_sha256=sha(args.cache/"cache.json"),
                  source_sha256=source_hashes(Path(plan["repo"])), runtime=runtime(torch),
                  git_commit=git_head(plan["repo"]),
-                 patient_update="one optimizer step per patient per cycle; bag losses weighted by tile count / patient pool",
-                 validation="same complete real-only validation pools, global attention", best_cycles={})
+                 patient_update="one global attention prediction, one BCE, one optimizer step per patient per epoch",
+                 evaluation_scope="development; validation selects checkpoints, not an unbiased outer-fold test",
+                 unbiased_outer_estimate=False, smoke=args.smoke,
+                 validation="same complete real-only development pools, global attention", best_cycles={}, stages={})
     write_json(args.out/"run_record.json", facts)
     pixels = Pixels(plan, normalizer_from(features.metadata["normalization"]), args.out)
     pools = plan["pools"][args.arm]
     loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(plan["class_weight"], device=args.device))
+    overall_best, selected_stage = float("inf"), None
     try:
         for stage, cycles, rate in (("frozen", args.frozen_cycles, args.frozen_lr),
                                      ("finetune", args.finetune_cycles, args.finetune_lr)):
             frozen = stage == "frozen"
-            model.backbone.requires_grad_(not frozen)
-            optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=rate)
-            best, best_cycle = float("inf"), 0
+            if frozen:
+                model.backbone.requires_grad_(False)
+                optimizer = torch.optim.Adam(model.pool.parameters(), lr=rate)
+            else:
+                encoder_parameters = finetune_parameters(model, features.metadata["backbone"])
+                optimizer = torch.optim.Adam([
+                    {"params": encoder_parameters, "lr": args.encoder_lr},
+                    {"params": model.pool.parameters(), "lr": rate}])
+                facts["trainable_encoder_parameters"] = [name for name, p in model.backbone.named_parameters() if p.requires_grad]
+            monitor, best_cycle = Plateau(args.patience, args.min_delta), 0
+            reason = "stage epoch limit"
             for cycle in range(cycles):
                 started, train_loss = time.monotonic(), 0.0
                 model.train()
@@ -290,45 +313,69 @@ def train(args):
                         loss.backward()
                         train_loss += loss.item()
                     else:
-                        for bag_index, bag in enumerate(coverage_bags(tiles, args.bag_size, plan["seed"], cycle)):
+                        chunks = coverage_bags(tiles, args.bag_size, plan["seed"], cycle)
+                        def load_chunk(index):
                             tensors = []
-                            for row in bag:
+                            for row in chunks[index]:
                                 seed = rng(plan["seed"], cycle, row["tile_id"], "augment").getrandbits(63)
                                 tensors.append(pixels.tile(row, seed))
-                            images = torch.stack(tensors).unsqueeze(0).to(args.device)
-                            logits, _ = model(images)
-                            loss = loss_fn(logits, target) * (len(bag)/len(tiles))
-                            loss.backward()
-                            train_loss += loss.item()
-                            append(args.out/"bag_audit.csv", dict(cycle=cycle+1, patient_id=patient,
-                                   bag=bag_index, real=sum(r["kind"] == "real" for r in bag),
-                                   synthetic=sum(r["kind"] == "synthetic" for r in bag),
-                                   tile_ids=json.dumps([r["tile_id"] for r in bag])))
+                            return torch.stack(tensors)
+                        result = backward_patient(model, chunks, load_chunk, target, loss_fn, args.device)
+                        train_loss += result["loss"]
+                        for chunk_index, chunk in enumerate(chunks):
+                            append(args.out/"chunk_audit.csv", dict(cycle=cycle+1, patient_id=patient,
+                                   chunk=chunk_index, real=sum(r["kind"] == "real" for r in chunk),
+                                   synthetic=sum(r["kind"] == "synthetic" for r in chunk),
+                                   tile_ids=json.dumps([r["tile_id"] for r in chunk])))
                     if any(p.grad is not None and not torch.isfinite(p.grad).all() for p in model.parameters()):
                         raise ValueError("Nonfinite gradients; stopped before optimizer update")
                     optimizer.step()
                 validation_loss, auc, predictions = predict(model, plan, features, pixels, args, frozen)
+                statistics = summarize(predictions)
                 append(args.out/"metrics.csv", dict(stage=stage, cycle=cycle+1,
                        training_loss=train_loss/len(patients), validation_loss=validation_loss,
-                       validation_auroc=auc, seconds=time.monotonic()-started))
+                       validation_auroc=auc, accuracy=statistics["accuracy"],
+                       balanced_accuracy=statistics["balanced_accuracy"],
+                       tn=statistics["tn"], fp=statistics["fp"], fn=statistics["fn"], tp=statistics["tp"],
+                       seconds=time.monotonic()-started))
                 for row in predictions:
                     append(args.out/"validation_predictions.csv", dict(stage=stage, cycle=cycle+1, **row))
                 print(f"{stage} cycle {cycle+1}: validation loss {validation_loss:.5f}, AUROC {auc}", flush=True)
-                if validation_loss < best:
-                    best, best_cycle = validation_loss, cycle+1
+                improved, stop = monitor.observe(validation_loss)
+                if improved:
+                    best_cycle = cycle+1
                     save_model(args.out/f"{stage}_best.pt", model)
-                elif cycle+1-best_cycle >= args.patience:
+                if stop:
+                    reason = "development loss plateau"
                     break
             if not best_cycle:
                 raise ValueError("No finite validation loss for checkpoint selection")
             model.load_state_dict(torch.load(args.out/f"{stage}_best.pt", map_location=args.device, weights_only=True))
             facts["best_cycles"][stage] = best_cycle
+            facts["stages"][stage] = dict(epochs_run=cycle+1, stop_reason=reason, best_loss=monitor.best)
+            if monitor.best < overall_best:
+                overall_best, selected_stage = monitor.best, stage
+                save_model(args.out/"selected_best.pt", model)
             write_json(args.out/"run_record.json", facts)
-        _, auc, predictions = predict(model, plan, features, pixels, args, frozen=False)
+        model.load_state_dict(torch.load(args.out/"selected_best.pt", map_location=args.device, weights_only=True))
+        _, auc, predictions = predict(model, plan, features, pixels, args, frozen=selected_stage == "frozen")
+        statistics = summarize(predictions)
+        statistics.update(auroc=auc, evaluation_scope="development", smoke=args.smoke)
+        training_labels = [tiles[0]["label"] for tiles in pools.values()]
+        majority = int(sum(training_labels) > len(training_labels)/2)
+        statistics.update(training_majority_label=majority,
+                          training_majority_predictor_accuracy=sum(r["label"] == majority for r in predictions)/len(predictions))
+        write_json(args.out/"patient_metrics.json", statistics)
+        with (args.out/"confusion_matrix.csv").open("w", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["true_class", "predicted_unmethylated", "predicted_methylated"])
+            for label, row in zip(("unmethylated", "methylated"), statistics["confusion_matrix"]):
+                writer.writerow([label, *row])
         for row in predictions:
             append(args.out/"predictions.csv", row)
-        facts.update(complete=True, valid_for_results=True, validation_auroc=auc,
-                     checkpoint_sha256=sha(args.out/"finetune_best.pt"))
+        facts.update(complete=True, valid_for_results=not args.smoke, validation_auroc=auc,
+                     selected_stage=selected_stage, epochs_run=sum(s["epochs_run"] for s in facts["stages"].values()),
+                     checkpoint_sha256=sha(args.out/"selected_best.pt"))
         write_json(args.out/"run_record.json", facts)
     finally:
         pixels.close()

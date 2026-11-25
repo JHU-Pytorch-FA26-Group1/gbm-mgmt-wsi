@@ -96,10 +96,10 @@ def select_pools(real, variants, cap, seed):
     truncate variants or create an all-synthetic patient. Patients lacking any
     variants are retained with an unchanged all-real bag in each arm.
     """
-    if type(cap) is not int or cap < 1:
+    if cap is not None and (type(cap) is not int or cap < 1):
         raise ValueError("A positive integer patient cap is required")
     ordered = diverse_order(real, (seed, "pool"))
-    count = min(cap, len(ordered))
+    count = len(ordered) if cap is None else min(cap, len(ordered))
     if not count:
         raise ValueError("No real tiles for patient")
     pools = {"real": ordered[:count]}

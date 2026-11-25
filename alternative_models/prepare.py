@@ -38,6 +38,23 @@ def prepare(args):
     package, repo = args.package.resolve(), args.repo.resolve()
     if args.out.exists():
         raise ValueError("Output already exists; refusing overwrite")
+    evidence_files = {}
+    if getattr(args, "require_combined", False) and not getattr(args, "allow_single_package_smoke", False):
+        settings_path = package / "combined_settings.json"
+        if not settings_path.is_file():
+            raise ValueError("Classification preparation requires the combined A+B input, not a single half")
+        settings = json.loads(settings_path.read_text())
+        if not settings.get("complete") or set(settings.get("parts", {})) != {"A", "B"}:
+            raise ValueError("A complete combination with distinct A and B parts is required")
+        paths = [settings_path, package / "patient_index.csv"]
+        roots = set()
+        for half, part in settings["parts"].items():
+            root = (package / part["path"]).resolve()
+            if root in roots or json.loads((root / "package_manifest.json").read_text()).get("subset") != half:
+                raise ValueError("Combined A+B must reference distinct, correctly identified halves")
+            roots.add(root)
+            paths += [root / "package_manifest.json", root / "modeling_patches.csv"]
+        evidence_files = {str(path): sha(path) for path in paths}
     folds_path, labels_path = repo / "manifests/patient_folds.csv", repo / "manifests/patient_labels.csv"
     fold_rows, label_rows = read_csv(folds_path), read_csv(labels_path)
     folds = {r["patient_id"]: (r["source"], r["fold"]) for r in fold_rows}
@@ -49,6 +66,10 @@ def prepare(args):
     if any(r["source"] != folds[r["patient_id"]][0] for r in label_rows):
         raise ValueError("Label and fold source cohorts disagree")
     table = loader.load_modeling(package)
+    if evidence_files:
+        index = read_csv(package / "patient_index.csv")
+        if len({r["patient_id"] for r in index}) != len(index) or {r["patient_id"] for r in index} != set(folds):
+            raise ValueError("Combined patient index must account for every canonical patient exactly once")
     real, train, validation = {}, defaultdict(list), defaultdict(list)
     for record in table.to_dict("records"):
         patient, patch = record["patient_id"], record["patch_id"]
@@ -124,6 +145,12 @@ def prepare(args):
                                synthetic=synthetic, total=len(rows), fraction=synthetic/len(rows)))
     plan = dict(protocol="alternative-attention-v1", fold=args.fold, seed=args.seed,
                 cap=args.cap, package=str(package), repo=str(repo),
+                package_evidence=evidence_files,
+                smoke_only=getattr(args, "allow_single_package_smoke", False),
+                population=dict(training_patients=len(train), validation_patients=len(validation),
+                    tcga_patients_with_tiles=len(train)+len(validation),
+                    tcga_patients_without_model_tiles=sorted(p for p, (source, _) in folds.items()
+                        if source == "TCGA" and p not in train and p not in validation)),
                 modeling_sha256=sha(package / "modeling_patches.csv"),
                 folds_sha256=sha(folds_path), labels_sha256=sha(labels_path),
                 synthetic_inputs=evidence, pools=pools, validation=dict(validation),
@@ -133,6 +160,7 @@ def prepare(args):
                                  for arm, patients in pools.items() if arm != "real"},
                 notes=["Pixel QC acceptance and inherited MGMT labels are not biological certification",
                        "All accepted variants retained; actual synthetic fractions may differ by design",
+                       "All-tiles sets the real-only budget to all available tiles; synthetic arms still replace real tiles to match that budget",
                        "Frozen features use deterministic preprocessing; fine-tuning adds shared flips/quarter-turns"])
     if "crop" in plan["source_families"] and "resize" in plan["source_families"]:
         plan["same_accepted_source_families"] = plan["source_families"]["crop"] == plan["source_families"]["resize"]

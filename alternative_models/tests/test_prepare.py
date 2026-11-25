@@ -102,6 +102,42 @@ class Preparation(unittest.TestCase):
             self.run_prepare()
         self.assertEqual((self.args.out/"plan.json").read_bytes(), original)
 
+    def test_all_tiles_keeps_complete_real_budget_and_matched_synthetic_budget(self):
+        self.args.cap = None
+        self.synthetic()
+        self.run_prepare()
+        plan = json.loads((self.args.out/"plan.json").read_text())
+        self.assertEqual(len(plan["pools"]["real"]["T1"]), 8)
+        self.assertEqual(len(plan["pools"]["resize"]["T1"]), 8)
+        self.assertEqual(sum(r["kind"] == "synthetic" for r in plan["pools"]["resize"]["T1"]), 1)
+        self.assertIsNone(plan["cap"])
+
+    def test_single_half_is_refused_for_full_cohort_preparation(self):
+        self.args.require_combined = True
+        with self.assertRaisesRegex(ValueError, "combined A\\+B"):
+            self.run_prepare()
+        self.assertFalse(self.args.out.exists())
+
+    def test_combined_input_records_both_parts_and_refuses_duplicate_patients(self):
+        self.args.require_combined = True
+        parts = {}
+        for half in ("A", "B"):
+            root = self.root/half
+            root.mkdir()
+            write_json(root/"package_manifest.json", dict(subset=half))
+            (root/"modeling_patches.csv").write_text("fixture")
+            parts[half] = {"path": "../"+half}
+        write_json(self.package/"combined_settings.json", dict(complete=True, parts=parts))
+        people = [dict(patient_id=p) for p,_,_ in self.canonical]
+        table(self.package/"patient_index.csv", people+people[:1])
+        with self.assertRaisesRegex(ValueError, "exactly once"):
+            self.run_prepare()
+        table(self.package/"patient_index.csv", people)
+        self.run_prepare()
+        plan = json.loads((self.args.out/"plan.json").read_text())
+        self.assertEqual(len(plan["package_evidence"]), 6)
+        self.assertEqual(plan["population"]["tcga_patients_with_tiles"], 4)
+
 
 if __name__ == "__main__":
     unittest.main()
