@@ -12,6 +12,7 @@ def parser():
     commands = p.add_subparsers(dest="command", required=True)
     prep = commands.add_parser("prepare")
     prep.add_argument("--package", type=Path, required=True)
+    prep.add_argument("--roi-scores", type=Path, help="Real tiles with predicted tumor fraction >= 0.50")
     prep.add_argument("--synthetic-inputs", type=Path)
     prep.add_argument("--fold", type=int, choices=range(5), required=True)
     budget = prep.add_mutually_exclusive_group(required=True)

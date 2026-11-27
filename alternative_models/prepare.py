@@ -71,7 +71,16 @@ def prepare(args):
         if len({r["patient_id"] for r in index}) != len(index) or {r["patient_id"] for r in index} != set(folds):
             raise ValueError("Combined patient index must account for every canonical patient exactly once")
     real, train, validation = {}, defaultdict(list), defaultdict(list)
-    for record in table.to_dict("records"):
+    selected = None
+    roi_counts = None
+    if getattr(args, "roi_scores", None):
+        from alternative_models.roi_pool import select_roi
+        if args.synthetic_inputs or args.cap is not None:
+            raise ValueError("ROI experiment requires all eligible real tiles")
+        selected, roi_evidence, roi_counts = select_roi(table, args.roi_scores)
+        evidence_files.update(roi_evidence)
+    for values in table.itertuples(index=False, name=None):
+        record = dict(zip(table.columns, values))
         patient, patch = record["patient_id"], record["patch_id"]
         if patient not in folds or folds[patient] != (record["source"], str(record["fold"])):
             raise ValueError(f"Package/canonical fold mismatch: {patch}")
@@ -79,6 +88,8 @@ def prepare(args):
             continue  # CPTAC is not read, normalized, encoded or scored by this CV runner.
         if patch in real:
             raise ValueError(f"Duplicate real patch ID: {patch}")
+        if selected is not None and patch not in selected:
+            continue
         row = dict(tile_id=patch, parent_patch_id=patch, patient_id=patient,
                    slide_id=record["slide_id"], kind="real", label=labels[patient],
                    x_target=record["x_target"], y_target=record["y_target"],
@@ -165,7 +176,11 @@ def prepare(args):
     if "crop" in plan["source_families"] and "resize" in plan["source_families"]:
         plan["same_accepted_source_families"] = plan["source_families"]["crop"] == plan["source_families"]["resize"]
     args.out.mkdir(parents=True, exist_ok=False)
-    write_json(args.out / "plan.json", plan)
+    if roi_counts is not None:
+        plan["roi_selection"] = {"minimum_tumor_fraction": 0.5, "eligible_by_patient": dict(roi_counts)}
+    with (args.out / "plan.json").open("w") as stream:
+        json.dump(plan, stream, allow_nan=False, separators=(",", ":"))
+
     with (args.out / "patient_counts.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(counts[0]))
         writer.writeheader()
